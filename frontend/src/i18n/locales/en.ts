@@ -1979,6 +1979,7 @@ export default {
         openai: 'OpenAI',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
+        copilot: 'Copilot',
       },
       deleteConfirm:
         "Are you sure you want to delete '{name}'? All associated API keys will no longer belong to any group.",
@@ -2576,6 +2577,7 @@ export default {
         openai: 'OpenAI',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
+        copilot: 'Copilot',
       },
       types: {
         oauth: 'OAuth',
@@ -3397,6 +3399,7 @@ export default {
       openaiAccount: 'OpenAI Account',
       geminiAccount: 'Gemini Account',
       antigravityAccount: 'Antigravity Account',
+      copilotAccount: 'Copilot Account',
       inputMethod: 'Input Method',
       reAuthorizedSuccess: 'Account re-authorized successfully',
       // Test Modal
@@ -3428,6 +3431,38 @@ export default {
       imageTestMode: 'Mode: Image generation test',
       imagePreview: 'Generated images:',
       imageReceived: 'Received test image #{count}',
+      // Copilot specific
+      copilot: {
+        githubToken: 'GitHub Personal Access Token *',
+        githubTokenHint: 'Your GitHub PAT with Copilot access (ghp_xxx or github_pat_xxx)',
+        pleaseEnterToken: 'Please enter your GitHub Personal Access Token',
+        baseUrlHint: 'Default: https://api.individual.githubcopilot.com. Change only if using a custom endpoint.',
+        deviceOAuth: 'GitHub Login (Recommended)',
+        deviceOAuthDesc: 'Login via browser, works with org Copilot',
+        patMethod: 'Personal Access Token',
+        patMethodDesc: 'Manual PAT with copilot scope',
+        deviceOAuthIntro: 'Click the button below to start GitHub authentication. A code will appear — enter it in the browser window that opens.',
+        startAuth: 'Start GitHub Authentication',
+        waitingForAuth: 'Waiting for authorization...',
+        openBrowser: 'Open the following link in your browser and enter the code below:',
+        enterCode: 'Enter this code:',
+        authSuccess: 'GitHub authentication successful!',
+        loggedInAs: 'Logged in as {login}',
+        tryAgain: 'Try again',
+        deviceFlowError: 'Failed to start device authentication flow',
+        pleaseCompleteAuth: 'Please complete GitHub authentication first',
+        modelMapping: 'Copilot Model Mapping',
+        modelMappingHint: 'Map request model names to Copilot actual model names (e.g. claude-sonnet-4-5 → claude-sonnet-4.5). Leave empty to use built-in default mapping (automatic dash↔dot conversion).',
+        quota: {
+          title: 'Copilot Usage',
+          plan: 'Plan',
+          premiumInteractions: 'Premium Interactions',
+          resetDate: 'Resets On',
+          unlimited: 'Unlimited',
+          remaining: '{n} remaining',
+          used: '{used}/{total} used'
+        }
+      },
       // Stats Modal
       viewStats: 'View Stats',
       usageStatistics: 'Usage Statistics',
