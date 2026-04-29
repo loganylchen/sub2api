@@ -494,6 +494,11 @@ var ProviderSet = wire.NewSet(
 	ProvideChannelMonitorService,
 	ProvideChannelMonitorRunner,
 	NewChannelMonitorRequestTemplateService,
+
+	// Copilot (GitHub Copilot) services
+	NewCopilotTokenProvider,
+	NewCopilotGatewayService,
+	NewCopilotOAuthService,
 )
 
 // ProvidePaymentConfigService wraps NewPaymentConfigService to accept the named
