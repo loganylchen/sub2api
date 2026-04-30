@@ -1324,7 +1324,13 @@
 
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
-              <ModelWhitelistSelector v-model="allowedModels" :platform="form.platform" />
+              <ModelWhitelistSelector
+                v-model="allowedModels"
+                :platform="form.platform"
+                :live-models="livePreviewModels"
+                :live-models-error="livePreviewError"
+                :live-models-loading="livePreviewLoading"
+              />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
                 <span v-if="allowedModels.length === 0">{{
@@ -2878,8 +2884,11 @@
       </div>
 
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
-        <!-- Mixed Scheduling (only for antigravity accounts) -->
-        <div v-if="form.platform === 'antigravity'" class="flex items-center gap-2">
+        <!-- Mixed Scheduling (antigravity / copilot accounts) -->
+        <div
+          v-if="form.platform === 'antigravity' || form.platform === 'copilot'"
+          class="flex items-center gap-2"
+        >
           <label class="flex cursor-pointer items-center gap-2">
             <input
               type="checkbox"
@@ -2887,7 +2896,11 @@
               class="h-4 w-4 rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
             />
             <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
-              {{ t('admin.accounts.mixedScheduling') }}
+              {{
+                form.platform === 'copilot'
+                  ? t('admin.accounts.mixedSchedulingCopilot')
+                  : t('admin.accounts.mixedScheduling')
+              }}
             </span>
           </label>
           <div class="group relative">
@@ -2900,7 +2913,11 @@
             <div
               class="pointer-events-none absolute left-0 top-full z-[100] mt-1.5 w-72 rounded bg-gray-900 px-3 py-2 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100 dark:bg-gray-700"
             >
-              {{ t('admin.accounts.mixedSchedulingTooltip') }}
+              {{
+                form.platform === 'copilot'
+                  ? t('admin.accounts.mixedSchedulingCopilotTooltip')
+                  : t('admin.accounts.mixedSchedulingTooltip')
+              }}
               <div
                 class="absolute bottom-full left-3 border-4 border-transparent border-b-gray-900 dark:border-b-gray-700"
               ></div>
@@ -3299,7 +3316,8 @@ import {
   commonErrorCodes,
   buildModelMappingObject,
   fetchAntigravityDefaultMappings,
-  isValidWildcardPattern
+  isValidWildcardPattern,
+  lookupAnthropicCompatPreset
 } from '@/composables/useModelWhitelist'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
@@ -3475,6 +3493,14 @@ const modelMappings = ref<ModelMapping[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
+// Live model preview: when user pastes a base_url + api_key for an
+// Anthropic-compatible third-party (e.g. z.ai/GLM), call the upstream's
+// /v1/models so the whitelist dropdown shows real models instead of Claude.
+const livePreviewModels = ref<{ id: string; label: string }[]>([])
+const livePreviewError = ref<string>('')
+const livePreviewLoading = ref(false)
+let livePreviewAbort: AbortController | null = null
+let livePreviewDebounceTimer: ReturnType<typeof setTimeout> | null = null
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
 const poolModeEnabled = ref(false)
@@ -3800,8 +3826,11 @@ watch(
       adminAPI.tlsFingerprintProfiles.list()
         .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
         .catch(() => { tlsFingerprintProfiles.value = [] })
-      // Modal opened - fill related models
-      allowedModels.value = [...getModelsByPlatform(form.platform)]
+      // Modal opened - fill related models (prefer live upstream list when available)
+      {
+        const liveIds = livePreviewModels.value.map(m => m.id)
+        allowedModels.value = liveIds.length > 0 ? liveIds : [...getModelsByPlatform(form.platform)]
+      }
       // Antigravity: 默认使用映射模式并填充默认映射
       if (form.platform === 'antigravity') {
         antigravityModelRestrictionMode.value = 'mapping'
@@ -3966,8 +3995,110 @@ watch(
   [modelRestrictionMode, () => form.platform],
   ([newMode]) => {
     if (newMode === 'whitelist') {
-      allowedModels.value = [...getModelsByPlatform(form.platform)]
+      const liveIds = livePreviewModels.value.map(m => m.id)
+      allowedModels.value = liveIds.length > 0 ? liveIds : [...getModelsByPlatform(form.platform)]
     }
+  }
+)
+
+// Debounced live /v1/models preview for Anthropic-compatible API-key accounts.
+// Triggers when (platform, base_url, api_key) all reach a valid state and the
+// base_url is NOT the official api.anthropic.com (where the hard-coded list is
+// already accurate).
+const ANTHROPIC_OFFICIAL_BASE_URLS = new Set([
+  'https://api.anthropic.com',
+  'https://api.anthropic.com/'
+])
+
+const triggerLivePreview = () => {
+  if (livePreviewDebounceTimer) {
+    clearTimeout(livePreviewDebounceTimer)
+    livePreviewDebounceTimer = null
+  }
+
+  const platform = form.platform
+  const isApiKey = form.type === 'apikey'
+  const baseUrl = apiKeyBaseUrl.value.trim()
+  const apiKey = apiKeyValue.value.trim()
+
+  // Instant feedback: known third-party Anthropic-compat domains
+  // (Zhipu/z.ai/bigmodel, Moonshot, ...) get their preset seeded immediately
+  // so the dropdown shows GLM/Kimi models without waiting for the api_key or
+  // the 800ms debounce.
+  if (platform === 'anthropic' && isApiKey && baseUrl !== '') {
+    const preset = lookupAnthropicCompatPreset(baseUrl)
+    if (preset) {
+      livePreviewModels.value = preset.models.map(m => ({ id: m.id, label: m.display_name }))
+      livePreviewError.value = ''
+      livePreviewLoading.value = false
+      if (modelRestrictionMode.value === 'whitelist') {
+        allowedModels.value = livePreviewModels.value.map(m => m.id)
+      }
+      // Skip the network call entirely — backend's preset path returns the
+      // same data anyway, and we don't want to require a typed api_key just
+      // to populate the dropdown for these known providers.
+      return
+    }
+  }
+
+  const eligible =
+    platform === 'anthropic' &&
+    isApiKey &&
+    baseUrl !== '' &&
+    !ANTHROPIC_OFFICIAL_BASE_URLS.has(baseUrl) &&
+    apiKey !== ''
+
+  if (!eligible) {
+    if (livePreviewAbort) {
+      livePreviewAbort.abort()
+      livePreviewAbort = null
+    }
+    livePreviewModels.value = []
+    livePreviewError.value = ''
+    livePreviewLoading.value = false
+    return
+  }
+
+  livePreviewDebounceTimer = setTimeout(async () => {
+    if (livePreviewAbort) livePreviewAbort.abort()
+    const controller = new AbortController()
+    livePreviewAbort = controller
+    livePreviewLoading.value = true
+    livePreviewError.value = ''
+
+    try {
+      const result = await adminAPI.accounts.previewAvailableModels(
+        { platform, base_url: baseUrl, api_key: apiKey },
+        controller.signal
+      )
+      if (controller.signal.aborted) return
+      livePreviewModels.value = (result || []).map(m => ({
+        id: m.id,
+        label: m.display_name || m.id
+      }))
+      // If user is in whitelist mode, refresh the default-fill to use the
+      // live list so the dropdown reflects the upstream's catalog.
+      if (modelRestrictionMode.value === 'whitelist' && livePreviewModels.value.length > 0) {
+        allowedModels.value = livePreviewModels.value.map(m => m.id)
+      }
+    } catch (err: unknown) {
+      if (controller.signal.aborted) return
+      livePreviewModels.value = []
+      const e = err as { message?: string; code?: number }
+      livePreviewError.value = e?.message || 'Failed to load models from upstream'
+    } finally {
+      if (livePreviewAbort === controller) {
+        livePreviewAbort = null
+      }
+      livePreviewLoading.value = false
+    }
+  }, 800)
+}
+
+watch(
+  [() => form.platform, () => form.type, apiKeyBaseUrl, apiKeyValue],
+  () => {
+    triggerLivePreview()
   }
 )
 

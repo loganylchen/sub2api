@@ -113,21 +113,28 @@ type Model struct {
 // dot-separated format (e.g. "claude-sonnet-4.5") which is applied automatically
 // by normalizeCopilotModel when forwarding requests.
 var DefaultModels = []Model{
-	{ID: "gpt-4o", Object: "model", Type: "model", DisplayName: "GPT-4o"},
-	{ID: "gpt-4o-mini", Object: "model", Type: "model", DisplayName: "GPT-4o Mini"},
-	{ID: "gpt-4.1", Object: "model", Type: "model", DisplayName: "GPT-4.1"},
-	{ID: "gpt-4.1-mini", Object: "model", Type: "model", DisplayName: "GPT-4.1 Mini"},
-	{ID: "gpt-4.1-nano", Object: "model", Type: "model", DisplayName: "GPT-4.1 Nano"},
-	{ID: "o4-mini", Object: "model", Type: "model", DisplayName: "o4 Mini"},
-	{ID: "o3-mini", Object: "model", Type: "model", DisplayName: "o3 Mini"},
+	// OpenAI (current as of 2026-04)
+	{ID: "gpt-5-mini", Object: "model", Type: "model", DisplayName: "GPT-5 Mini"},
+	{ID: "gpt-5.2", Object: "model", Type: "model", DisplayName: "GPT-5.2"},
+	{ID: "gpt-5.2-codex", Object: "model", Type: "model", DisplayName: "GPT-5.2 Codex"},
+	{ID: "gpt-5.3-codex", Object: "model", Type: "model", DisplayName: "GPT-5.3 Codex"},
+	{ID: "gpt-5.4", Object: "model", Type: "model", DisplayName: "GPT-5.4"},
+	{ID: "gpt-5.4-mini", Object: "model", Type: "model", DisplayName: "GPT-5.4 Mini"},
+	{ID: "gpt-5.5", Object: "model", Type: "model", DisplayName: "GPT-5.5"},
+	// Anthropic — dash-separated for Claude Code whitelist compatibility
+	{ID: "claude-haiku-4-5", Object: "model", Type: "model", DisplayName: "Claude Haiku 4.5"},
 	{ID: "claude-sonnet-4", Object: "model", Type: "model", DisplayName: "Claude Sonnet 4"},
 	{ID: "claude-sonnet-4-5", Object: "model", Type: "model", DisplayName: "Claude Sonnet 4.5"},
 	{ID: "claude-sonnet-4-6", Object: "model", Type: "model", DisplayName: "Claude Sonnet 4.6"},
 	{ID: "claude-opus-4-5", Object: "model", Type: "model", DisplayName: "Claude Opus 4.5"},
 	{ID: "claude-opus-4-6", Object: "model", Type: "model", DisplayName: "Claude Opus 4.6"},
-	{ID: "claude-haiku-4-5", Object: "model", Type: "model", DisplayName: "Claude Haiku 4.5"},
-	{ID: "claude-3.5-sonnet", Object: "model", Type: "model", DisplayName: "Claude 3.5 Sonnet"},
-	{ID: "gemini-2.0-flash-001", Object: "model", Type: "model", DisplayName: "Gemini 2.0 Flash"},
+	{ID: "claude-opus-4-7", Object: "model", Type: "model", DisplayName: "Claude Opus 4.7"},
+	// Google
+	{ID: "gemini-2.5-pro", Object: "model", Type: "model", DisplayName: "Gemini 2.5 Pro"},
+	{ID: "gemini-3-flash", Object: "model", Type: "model", DisplayName: "Gemini 3 Flash"},
+	{ID: "gemini-3.1-pro", Object: "model", Type: "model", DisplayName: "Gemini 3.1 Pro"},
+	// xAI
+	{ID: "grok-code-fast-1", Object: "model", Type: "model", DisplayName: "Grok Code Fast 1"},
 }
 
 // QuotaDetail holds usage information for a single Copilot feature.

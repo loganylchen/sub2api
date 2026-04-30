@@ -243,7 +243,9 @@ func (s *CopilotGatewayService) handleErrorResponse(
 	}, nil
 }
 
-// applyModelMapping applies model mapping from account configuration.
+// applyModelMapping applies model mapping from account configuration and
+// normalizes Claude model IDs to the dot-separated form expected by Copilot's
+// chat-completions endpoint (e.g. "claude-sonnet-4-5" → "claude-sonnet-4.5").
 func (s *CopilotGatewayService) applyModelMapping(body []byte, account *Account) ([]byte, string) {
 	// Extract model from request body
 	var req struct {
@@ -254,29 +256,30 @@ func (s *CopilotGatewayService) applyModelMapping(body []byte, account *Account)
 	}
 
 	originalModel := req.Model
-	mappedModel := account.GetMappedModel(originalModel)
+	finalModel := normalizeCopilotModel(originalModel, account.GetModelMapping())
 
-	if mappedModel != originalModel {
-		// Replace model in request body
-		newBody, err := json.Marshal(map[string]json.RawMessage{})
-		if err == nil {
-			// Simple approach: replace model field in the JSON
-			var raw map[string]json.RawMessage
-			if err := json.Unmarshal(body, &raw); err == nil {
-				modelBytes, _ := json.Marshal(mappedModel)
-				raw["model"] = modelBytes
-				if replaced, err := json.Marshal(raw); err == nil {
-					newBody = replaced
-					slog.Debug("copilot model mapping",
-						"original", originalModel,
-						"mapped", mappedModel)
-					return newBody, originalModel
-				}
-			}
-		}
+	if finalModel == originalModel {
+		return body, originalModel
 	}
 
-	return body, originalModel
+	// Replace model field in request body
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return body, originalModel
+	}
+	modelBytes, err := json.Marshal(finalModel)
+	if err != nil {
+		return body, originalModel
+	}
+	raw["model"] = modelBytes
+	replaced, err := json.Marshal(raw)
+	if err != nil {
+		return body, originalModel
+	}
+	slog.Debug("copilot model mapping",
+		"original", originalModel,
+		"mapped", finalModel)
+	return replaced, originalModel
 }
 
 // detectStreamMode checks if the request body has "stream": true.
@@ -603,7 +606,18 @@ type copilotInternalUserResponse struct {
 	// ChatEnabled indicates whether chat is available.
 	ChatEnabled bool `json:"chat_enabled"`
 
-	// CopilotQuotaDetails contains fine-grained quota information when available.
+	// QuotaResetDate is the top-level reset date (e.g. "2026-05-01").
+	QuotaResetDate string `json:"quota_reset_date,omitempty"`
+
+	// QuotaSnapshots is the current schema returned by GitHub
+	// (replaces the older copilot_quota_details object).
+	QuotaSnapshots *struct {
+		Completions         *copilotQuotaDetailRaw `json:"completions"`
+		Chat                *copilotQuotaDetailRaw `json:"chat"`
+		PremiumInteractions *copilotQuotaDetailRaw `json:"premium_interactions"`
+	} `json:"quota_snapshots"`
+
+	// CopilotQuotaDetails is the legacy schema (older accounts).
 	CopilotQuotaDetails *struct {
 		Completions         *copilotQuotaDetailRaw `json:"completions"`
 		Chat                *copilotQuotaDetailRaw `json:"chat"`
@@ -613,9 +627,29 @@ type copilotInternalUserResponse struct {
 }
 
 type copilotQuotaDetailRaw struct {
-	Entitlement      int  `json:"entitlement,omitempty"`
-	OveragePermitted bool `json:"overage_permitted,omitempty"`
-	Used             int  `json:"used,omitempty"`
+	Entitlement      int     `json:"entitlement,omitempty"`
+	OveragePermitted bool    `json:"overage_permitted,omitempty"`
+	Used             int     `json:"used,omitempty"`
+	// Fields present in the new quota_snapshots schema.
+	Remaining        int     `json:"remaining,omitempty"`
+	PercentRemaining float64 `json:"percent_remaining,omitempty"`
+	Unlimited        bool    `json:"unlimited,omitempty"`
+}
+
+// resolveUsed normalizes the consumed quota across schemas. The newer
+// quota_snapshots schema reports `remaining` and `entitlement` instead of
+// `used`, so derive used = entitlement - remaining when needed.
+func (d *copilotQuotaDetailRaw) resolveUsed() int {
+	if d == nil {
+		return 0
+	}
+	if d.Used > 0 {
+		return d.Used
+	}
+	if d.Entitlement > 0 && d.Remaining >= 0 && d.Remaining <= d.Entitlement {
+		return d.Entitlement - d.Remaining
+	}
+	return d.Used
 }
 
 // FetchQuota fetches the Copilot quota and plan information for an account from
@@ -662,31 +696,58 @@ func (s *CopilotGatewayService) FetchQuota(
 	planType := planTypeFromString(raw.CopilotPlan)
 
 	info := &copilot.CopilotQuotaInfo{
-		Plan:     raw.CopilotPlan,
-		PlanType: planType,
+		Plan:           raw.CopilotPlan,
+		PlanType:       planType,
+		QuotaResetDate: raw.QuotaResetDate,
 	}
 
-	if d := raw.CopilotQuotaDetails; d != nil {
-		info.QuotaResetDate = d.QuotaResetDate
+	// Prefer the new quota_snapshots schema; fall back to copilot_quota_details
+	// for accounts still served by the legacy shape.
+	if d := raw.QuotaSnapshots; d != nil {
 		if d.Completions != nil {
 			info.Completions = &copilot.QuotaDetail{
 				Entitlement:      d.Completions.Entitlement,
 				OveragePermitted: d.Completions.OveragePermitted,
-				Used:             d.Completions.Used,
+				Used:             d.Completions.resolveUsed(),
 			}
 		}
 		if d.Chat != nil {
 			info.Chat = &copilot.QuotaDetail{
 				Entitlement:      d.Chat.Entitlement,
 				OveragePermitted: d.Chat.OveragePermitted,
-				Used:             d.Chat.Used,
+				Used:             d.Chat.resolveUsed(),
 			}
 		}
 		if d.PremiumInteractions != nil {
 			info.PremiumInteractions = &copilot.QuotaDetail{
 				Entitlement:      d.PremiumInteractions.Entitlement,
 				OveragePermitted: d.PremiumInteractions.OveragePermitted,
-				Used:             d.PremiumInteractions.Used,
+				Used:             d.PremiumInteractions.resolveUsed(),
+			}
+		}
+	} else if d := raw.CopilotQuotaDetails; d != nil {
+		if d.QuotaResetDate != "" {
+			info.QuotaResetDate = d.QuotaResetDate
+		}
+		if d.Completions != nil {
+			info.Completions = &copilot.QuotaDetail{
+				Entitlement:      d.Completions.Entitlement,
+				OveragePermitted: d.Completions.OveragePermitted,
+				Used:             d.Completions.resolveUsed(),
+			}
+		}
+		if d.Chat != nil {
+			info.Chat = &copilot.QuotaDetail{
+				Entitlement:      d.Chat.Entitlement,
+				OveragePermitted: d.Chat.OveragePermitted,
+				Used:             d.Chat.resolveUsed(),
+			}
+		}
+		if d.PremiumInteractions != nil {
+			info.PremiumInteractions = &copilot.QuotaDetail{
+				Entitlement:      d.PremiumInteractions.Entitlement,
+				OveragePermitted: d.PremiumInteractions.OveragePermitted,
+				Used:             d.PremiumInteractions.resolveUsed(),
 			}
 		}
 	}

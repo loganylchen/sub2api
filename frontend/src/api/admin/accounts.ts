@@ -441,6 +441,36 @@ export async function getAvailableModels(id: number): Promise<ClaudeModel[]> {
   return data
 }
 
+export interface PreviewModelsPayload {
+  platform: string
+  base_url: string
+  api_key: string
+}
+
+export interface PreviewModelEntry {
+  id: string
+  display_name?: string
+  type?: string
+}
+
+/**
+ * Live-preview the upstream's /v1/models for an Anthropic-compatible
+ * (platform, base_url, api_key) before saving an account. Lets the create/edit
+ * modal show real models for third-party providers (e.g. GLM via z.ai) instead
+ * of the hard-coded Claude list.
+ */
+export async function previewAvailableModels(
+  payload: PreviewModelsPayload,
+  signal?: AbortSignal
+): Promise<PreviewModelEntry[]> {
+  const { data } = await apiClient.post<PreviewModelEntry[]>(
+    '/admin/accounts/preview-models',
+    payload,
+    { signal }
+  )
+  return data
+}
+
 export interface CRSPreviewAccount {
   crs_account_id: string
   kind: string
@@ -585,6 +615,45 @@ export async function getCopilotQuota(id: number): Promise<CopilotQuotaInfo> {
 }
 
 /**
+ * Z.AI / Zhipu GLM Coding Plan quota info
+ */
+export interface ZAIQuotaLimit {
+  type: string
+  unit?: number
+  number?: number
+  percentage: number
+  next_reset_time?: number
+  usage?: number
+  current_value?: number
+  remaining?: number
+  usage_details?: Array<{ modelCode: string; usage: number }>
+}
+
+export interface ZAIQuotaInfo {
+  platform?: string
+  level?: string
+  limits?: ZAIQuotaLimit[]
+  total_tokens_usage?: number
+  total_model_call_count?: number
+  total_network_search_count?: number
+  total_web_read_mcp_count?: number
+  total_zread_mcp_count?: number
+  query_window_start?: string
+  query_window_end?: string
+  errors?: Record<string, string>
+}
+
+/**
+ * Get Z.AI / Zhipu quota information for an account
+ * @param id - Account ID
+ * @returns Z.AI quota info
+ */
+export async function getZAIQuota(id: number): Promise<ZAIQuotaInfo> {
+  const { data } = await apiClient.get<ZAIQuotaInfo>(`/admin/accounts/${id}/zai-quota`)
+  return data
+}
+
+/**
  * Refresh OpenAI token using refresh token
  * @param refreshToken - The refresh token
  * @param proxyId - Optional proxy ID
@@ -679,6 +748,7 @@ export const accountsAPI = {
   resetTempUnschedulable,
   setSchedulable,
   getAvailableModels,
+  previewAvailableModels,
   generateAuthUrl,
   exchangeCode,
   refreshOpenAIToken,
@@ -691,6 +761,7 @@ export const accountsAPI = {
   importData,
   getAntigravityDefaultModelMapping,
   getCopilotQuota,
+  getZAIQuota,
   batchClearError,
   batchRefresh,
   setPrivacy

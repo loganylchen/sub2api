@@ -60,6 +60,7 @@ type AccountHandler struct {
 	rpmCache                service.RPMCache
 	tokenCacheInvalidator   service.TokenCacheInvalidator
 	copilotGatewayService   *service.CopilotGatewayService
+	zaiQuotaService         *service.ZAIQuotaService
 }
 
 // NewAccountHandler creates a new admin account handler
@@ -78,6 +79,7 @@ func NewAccountHandler(
 	rpmCache service.RPMCache,
 	tokenCacheInvalidator service.TokenCacheInvalidator,
 	copilotGatewayService *service.CopilotGatewayService,
+	zaiQuotaService *service.ZAIQuotaService,
 ) *AccountHandler {
 	return &AccountHandler{
 		adminService:            adminService,
@@ -94,6 +96,7 @@ func NewAccountHandler(
 		rpmCache:                rpmCache,
 		tokenCacheInvalidator:   tokenCacheInvalidator,
 		copilotGatewayService:   copilotGatewayService,
+		zaiQuotaService:         zaiQuotaService,
 	}
 }
 
@@ -1888,8 +1891,67 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
-	// Handle Copilot accounts
+	// Handle Copilot accounts.
+	// Prefer the live /models endpoint of GitHub Copilot, scoped to this account's
+	// token, so the admin UI shows exactly what this subscription can use.
+	// Fall back to model_mapping (if configured) or DefaultModels on any failure.
 	if account.Platform == service.PlatformCopilot {
+		if h.copilotGatewayService != nil {
+			if raw, err := h.copilotGatewayService.ListModels(c.Request.Context(), account); err == nil {
+				// GitHub Copilot's /models returns the full catalog. We narrow it to
+				// what THIS account can actually call by checking:
+				//   - model_picker_enabled: false  → hidden from end-user pickers
+				//                                    (internal routers, embeddings, etc.)
+				//   - policy.state != "enabled"    → blocked by org/plan policy
+				// Label uses display_name → name → id (Copilot's payload uses "name").
+				var parsed struct {
+					Data []struct {
+						ID                 string `json:"id"`
+						Object             string `json:"object"`
+						Type               string `json:"type"`
+						DisplayName        string `json:"display_name"`
+						Name               string `json:"name"`
+						ModelPickerEnabled *bool  `json:"model_picker_enabled"`
+						Policy             *struct {
+							State string `json:"state"`
+						} `json:"policy"`
+					} `json:"data"`
+				}
+				if jsonErr := json.Unmarshal(raw, &parsed); jsonErr == nil && len(parsed.Data) > 0 {
+					models := make([]copilot.Model, 0, len(parsed.Data))
+					for _, m := range parsed.Data {
+						if m.ModelPickerEnabled != nil && !*m.ModelPickerEnabled {
+							continue
+						}
+						if m.Policy != nil && m.Policy.State != "" && m.Policy.State != "enabled" {
+							continue
+						}
+						label := m.DisplayName
+						if label == "" {
+							label = m.Name
+						}
+						if label == "" {
+							label = m.ID
+						}
+						objType := m.Type
+						if objType == "" {
+							objType = "model"
+						}
+						models = append(models, copilot.Model{
+							ID:          m.ID,
+							Object:      "model",
+							Type:        objType,
+							DisplayName: label,
+						})
+					}
+					if len(models) > 0 {
+						response.Success(c, models)
+						return
+					}
+				}
+			}
+		}
+
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
 			response.Success(c, copilot.DefaultModels)
@@ -1925,7 +1987,20 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
-	// For API Key accounts: return models based on model_mapping
+	// For API Key accounts:
+	// 1. Known third-party Anthropic-compat providers (Zhipu, Moonshot, etc.)
+	//    use a curated preset since their /v1/models is unreliable.
+	// 2. Otherwise prefer the upstream's live /v1/models endpoint.
+	if preset := claude.LookupAnthropicCompatPreset(account.GetCredential("base_url")); preset != nil {
+		response.Success(c, preset.Models)
+		return
+	}
+	if liveModels, err := fetchAnthropicModelsLive(c.Request.Context(), account); err == nil && len(liveModels) > 0 {
+		response.Success(c, liveModels)
+		return
+	}
+
+	// Fallback: return models based on model_mapping
 	mapping := account.GetModelMapping()
 	if len(mapping) == 0 {
 		// No mapping configured, return default models
@@ -1956,6 +2031,88 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		}
 	}
 
+	response.Success(c, models)
+}
+
+// PreviewAvailableModelsRequest represents the request body for live-previewing
+// the model list of an Anthropic-compatible upstream before saving an account.
+type PreviewAvailableModelsRequest struct {
+	Platform string `json:"platform"`
+	BaseURL  string `json:"base_url"`
+	APIKey   string `json:"api_key"`
+}
+
+// PreviewAvailableModels returns the live /v1/models result for an
+// Anthropic-compatible endpoint using the supplied (base_url, api_key) without
+// requiring a saved account. Used by the create/edit account modals so users
+// see the upstream's real model catalog (e.g. GLM models from z.ai) instead of
+// the hard-coded Claude list.
+//
+// POST /api/v1/admin/accounts/preview-models
+func (h *AccountHandler) PreviewAvailableModels(c *gin.Context) {
+	var req PreviewAvailableModelsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request body")
+		return
+	}
+
+	platform := strings.TrimSpace(req.Platform)
+	baseURL := strings.TrimSpace(req.BaseURL)
+	apiKey := strings.TrimSpace(req.APIKey)
+
+	if platform != service.PlatformAnthropic {
+		response.BadRequest(c, "Only anthropic platform is supported for preview")
+		return
+	}
+	if apiKey == "" {
+		response.BadRequest(c, "api_key is required")
+		return
+	}
+	if baseURL == "" {
+		response.BadRequest(c, "base_url is required")
+		return
+	}
+	if !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+		response.BadRequest(c, "base_url must be an http(s) URL")
+		return
+	}
+
+	// Known third-party Anthropic-compat providers (Zhipu via z.ai or
+	// open.bigmodel.cn, Moonshot, etc.) typically don't implement /v1/models
+	// reliably — the proxy only mirrors /v1/messages. For these we return a
+	// curated preset directly and skip the live call entirely. This is faster
+	// and avoids the failure mode where the proxy returns Claude IDs (which
+	// would never actually work as Zhipu/Moonshot model IDs).
+	if preset := claude.LookupAnthropicCompatPreset(baseURL); preset != nil {
+		response.Success(c, preset.Models)
+		return
+	}
+
+	tmpAccount := &service.Account{
+		Platform: service.PlatformAnthropic,
+		Type:     service.AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  apiKey,
+			"base_url": baseURL,
+		},
+	}
+
+	models, err := fetchAnthropicModelsLive(c.Request.Context(), tmpAccount)
+	if err != nil {
+		// Surface 4xx upstream status when detectable; otherwise return 502.
+		msg := err.Error()
+		switch {
+		case strings.Contains(msg, "HTTP 401"):
+			response.Error(c, http.StatusUnauthorized, "Upstream rejected api_key (401)")
+		case strings.Contains(msg, "HTTP 403"):
+			response.Error(c, http.StatusForbidden, "Upstream forbidden (403)")
+		case strings.Contains(msg, "HTTP 404"):
+			response.Error(c, http.StatusNotFound, "Upstream /v1/models not found (404)")
+		default:
+			response.Error(c, http.StatusBadGateway, "Failed to fetch models: "+msg)
+		}
+		return
+	}
 	response.Success(c, models)
 }
 
@@ -2030,6 +2187,40 @@ func (h *AccountHandler) GetCopilotQuota(c *gin.Context) {
 	}
 
 	quotaInfo, err := h.copilotGatewayService.FetchQuota(c.Request.Context(), account)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, quotaInfo)
+}
+
+// GetZAIQuota handles fetching Z.AI / Zhipu GLM Coding Plan quota information.
+// GET /api/v1/admin/accounts/:id/zai-quota
+func (h *AccountHandler) GetZAIQuota(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+
+	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	if err != nil {
+		response.NotFound(c, "Account not found")
+		return
+	}
+
+	if !service.IsZAIAccount(account) {
+		response.BadRequest(c, "Account is not a Z.AI / Zhipu account")
+		return
+	}
+
+	if h.zaiQuotaService == nil {
+		response.InternalError(c, "Z.AI quota service not available")
+		return
+	}
+
+	quotaInfo, err := h.zaiQuotaService.FetchQuota(c.Request.Context(), account)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -2222,4 +2413,55 @@ func sanitizeExtraBaseRPM(extra map[string]any) {
 		v = 10000
 	}
 	extra["base_rpm"] = v
+}
+
+// fetchAnthropicModelsLive queries an Anthropic-compatible /v1/models endpoint
+// using the API-key account's credentials. Returns parsed Claude-format models.
+//
+// This works for both api.anthropic.com and any provider that exposes the
+// Anthropic Messages API (e.g. https://api.z.ai/api/anthropic for Zhipu GLM,
+// where it returns the GLM model catalog).
+//
+// Returns an error if the account is not an api_key type, has no api_key, the
+// HTTP call fails, or the response can't be parsed.
+func fetchAnthropicModelsLive(ctx context.Context, account *service.Account) ([]claude.Model, error) {
+	apiKey := strings.TrimSpace(account.GetCredential("api_key"))
+	if apiKey == "" {
+		return nil, fmt.Errorf("anthropic: missing api_key")
+	}
+
+	baseURL := strings.TrimSpace(account.GetCredential("base_url"))
+	if baseURL == "" {
+		baseURL = "https://api.anthropic.com"
+	}
+	baseURL = strings.TrimRight(baseURL, "/")
+
+	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, baseURL+"/v1/models", nil)
+	if err != nil {
+		return nil, fmt.Errorf("anthropic: build request: %w", err)
+	}
+	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("anthropic: do request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("anthropic: HTTP %d", resp.StatusCode)
+	}
+
+	var parsed struct {
+		Data []claude.Model `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil, fmt.Errorf("anthropic: decode response: %w", err)
+	}
+	return parsed.Data, nil
 }

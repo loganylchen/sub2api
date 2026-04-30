@@ -14,6 +14,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -287,52 +288,61 @@ func translateAnthropicToOpenAI(body []byte, modelMapping map[string]string) ([]
 	return json.Marshal(openAIReq)
 }
 
-// normalizeCopilotModel maps Anthropic-style model names (dashes) to the exact
-// Copilot API model IDs (dots).
+// claudeCodeDateSuffix matches Claude Code's `-YYYYMMDD` snapshot suffix.
+var claudeCodeDateSuffix = regexp.MustCompile(`-\d{8}$`)
+
+// claudeTrailingMinor matches a trailing `-MAJOR-MINOR` version (e.g. `-4-5`)
+// that Copilot's chat-completions endpoint expects in dot form (`-4.5`).
+var claudeTrailingMinor = regexp.MustCompile(`-(\d+)-(\d+)$`)
+
+// normalizeCopilotModel resolves the model ID to send to the Copilot API.
 //
-// Claude Code sends model names like "claude-sonnet-4-5" (dashes, as exposed
-// by our /v1/models endpoint). Copilot API expects "claude-sonnet-4.5" (dots).
+// Quirk: GitHub Copilot's `/models` endpoint advertises Claude IDs with dashes
+// (e.g. `claude-sonnet-4-5`), but the chat-completions endpoint actually
+// requires the dot-separated version suffix (e.g. `claude-sonnet-4.5`). Models
+// without a `-MAJOR-MINOR` tail (e.g. `claude-sonnet-4`) work as-is.
 //
-// The optional modelMapping parameter provides account-level overrides. When a
-// mapping entry is found for the requested model, it takes priority over the
-// generic conversion.
+// Transformations (in order):
+//  1. Account-level explicit mapping (highest priority).
+//  2. Strip Claude Code's `-YYYYMMDD` snapshot suffix.
+//  3. For `claude-*` models, convert trailing `-MAJOR-MINOR` to `-MAJOR.MINOR`.
 //
 // Examples (no mapping):
 //
 //	"claude-sonnet-4-5"          → "claude-sonnet-4.5"
 //	"claude-sonnet-4-5-20250929" → "claude-sonnet-4.5"
-//	"claude-opus-4-6"            → "claude-opus-4.6"
 //	"claude-haiku-4-5"           → "claude-haiku-4.5"
-//	"gpt-4o"                     → "gpt-4o"  (unchanged)
+//	"claude-sonnet-4"            → "claude-sonnet-4"
+//	"claude-opus-4-7"            → "claude-opus-4.7"
+//	"gpt-4o"                     → "gpt-4o"
 func normalizeCopilotModel(model string, modelMapping map[string]string) string {
-	// Check account-level mapping first.
+	// Check account-level mapping first (raw input).
 	if len(modelMapping) > 0 {
 		if target, ok := modelMapping[model]; ok {
 			return target
 		}
 	}
 
-	// Fallback: generic dash-to-dot conversion for known Claude model prefixes.
-	prefixes := []string{
-		"claude-sonnet-4-",
-		"claude-opus-4-",
-		"claude-haiku-4-",
-		"claude-sonnet-3-",
-		"claude-opus-3-",
-		"claude-haiku-3-",
+	if !strings.HasPrefix(model, "claude-") {
+		return model
 	}
 
-	for _, prefix := range prefixes {
-		if strings.HasPrefix(model, prefix) {
-			// Extract just the minor version number (e.g. "5" from "claude-sonnet-4-5-20250929")
-			rest := model[len(prefix):]
-			minor := strings.SplitN(rest, "-", 2)[0]
-			// Rebuild with dot: "claude-sonnet-4.5"
-			base := prefix[:len(prefix)-1] // strip trailing "-"
-			return base + "." + minor
+	// Strip Claude Code's snapshot date suffix when present.
+	stripped := claudeCodeDateSuffix.ReplaceAllString(model, "")
+	if stripped != model && len(modelMapping) > 0 {
+		if target, ok := modelMapping[stripped]; ok {
+			return target
 		}
 	}
-	return model
+
+	// Convert trailing `-MAJOR-MINOR` to `-MAJOR.MINOR` for Copilot.
+	withDot := claudeTrailingMinor.ReplaceAllString(stripped, "-$1.$2")
+	if withDot != stripped && len(modelMapping) > 0 {
+		if target, ok := modelMapping[withDot]; ok {
+			return target
+		}
+	}
+	return withDot
 }
 
 // buildOpenAIMessages converts the Anthropic messages array (plus optional system

@@ -1,0 +1,12 @@
+# Override: build sub2api image locally with Copilot integration changes
+# Usage: docker compose -f docker-compose.local.yml -f docker-compose.copilot.yml up -d --build
+
+services:
+  sub2api:
+    image: sub2api:copilot-local
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        VERSION: copilot-local
+        COMMIT: ${GIT_COMMIT:-local}

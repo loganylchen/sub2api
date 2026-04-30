@@ -898,6 +898,16 @@ export interface AccountUsageInfo {
   gemini_pro_minute?: UsageProgress | null
   gemini_flash_minute?: UsageProgress | null
   antigravity_quota?: Record<string, AntigravityModelQuota> | null
+  // Copilot 月度配额快照（无 5h/7d 窗口，仅显示 premium interactions 总量）
+  copilot_quota?: {
+    plan?: string
+    plan_type?: string
+    premium_used: number
+    premium_limit: number
+    premium_percentage: number
+    premium_overage_permitted?: boolean
+    quota_reset_date?: string
+  } | null
   ai_credits?: Array<{
     credit_type?: string
     amount?: number

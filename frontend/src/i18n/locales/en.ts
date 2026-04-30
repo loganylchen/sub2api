@@ -705,6 +705,9 @@ export default {
         modelComment: 'If you have Gemini 3 access, you can use: gemini-3-pro-preview',
         note: 'These environment variables will be active in the current terminal session. For permanent configuration, add them to ~/.bashrc, ~/.zshrc, or the appropriate configuration file.',
       },
+      claude: {
+        modelComment: 'Available models: {models}',
+      },
       opencode: {
         title: 'OpenCode Example',
         subtitle: 'opencode.json',
@@ -3035,6 +3038,11 @@ export default {
       mixedSchedulingHint: 'Enable to participate in Anthropic/Gemini group scheduling',
       mixedSchedulingTooltip:
         '!! WARNING !! Antigravity Claude and Anthropic Claude cannot be used in the same context. If you have both Anthropic and Antigravity accounts, enabling this option will cause frequent 400 errors. When enabled, please use the group feature to isolate Antigravity accounts from Anthropic accounts. Make sure you understand this before enabling!!',
+      mixedSchedulingCopilot: 'Allow scheduling into Anthropic groups',
+      mixedSchedulingCopilotHint:
+        'Allow this Copilot account to participate in Anthropic group scheduling. Anthropic Messages requests will be translated to Copilot format.',
+      mixedSchedulingCopilotTooltip:
+        '!! NOTE !! Copilot uses dot-versioned model IDs (e.g. claude-sonnet-4.5). Date suffixes (e.g. -20250929) are auto-stripped during translation. count_tokens responses are local estimates because Copilot has no count_tokens endpoint.',
       aiCreditsBalance: 'AI Credits',
       allowOverages: 'Allow Overages (AI Credits)',
       allowOveragesTooltip:
@@ -3461,6 +3469,28 @@ export default {
           unlimited: 'Unlimited',
           remaining: '{n} remaining',
           used: '{used}/{total} used'
+        }
+      },
+      // Z.AI / Zhipu GLM specific
+      zai: {
+        quota: {
+          title: 'GLM Coding Plan Usage',
+          plan: 'Plan',
+          fiveHourTokens: '5-Hour Tokens',
+          weeklyTokens: 'Weekly Tokens',
+          mcpMonthly: 'MCP Calls (Monthly)',
+          used: '{used}/{total}',
+          percentage: '{n}% used',
+          resetIn: 'Resets in {time}',
+          resetsAt: 'Resets at {time}',
+          totalTokens: 'Total Tokens (24h)',
+          totalCalls: 'Total Calls (24h)',
+          networkSearches: 'Network Searches (24h)',
+          webReads: 'Web Reads (24h)',
+          zreadCalls: 'ZRead Calls (24h)',
+          queryWindow: 'Query Window',
+          partialError: 'Some metrics failed to load',
+          unknownLimit: 'Unknown limit type'
         }
       },
       // Stats Modal

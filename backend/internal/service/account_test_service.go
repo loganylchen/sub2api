@@ -930,13 +930,10 @@ func (s *AccountTestService) testCopilotAccountConnection(c *gin.Context, accoun
 		testModelID = copilot.DefaultTestModel
 	}
 
-	// Apply model mapping if configured
-	if account.Type == "apikey" {
-		mapping := account.GetModelMapping()
-		if mapped, ok := mapping[testModelID]; ok && mapped != "" {
-			testModelID = mapped
-		}
-	}
+	// Normalize Anthropic-style dashed model IDs (e.g. "claude-sonnet-4-6") to the
+	// dot-separated form Copilot expects (e.g. "claude-sonnet-4.6"). Account-level
+	// model_mapping overrides take priority inside normalizeCopilotModel.
+	testModelID = normalizeCopilotModel(testModelID, account.GetModelMapping())
 
 	// Set SSE headers
 	c.Writer.Header().Set("Content-Type", "text/event-stream")

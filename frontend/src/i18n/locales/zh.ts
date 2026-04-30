@@ -708,6 +708,9 @@ export default {
         modelComment: '如果你有 Gemini 3 权限可以填：gemini-3-pro-preview',
         note: '这些环境变量将在当前终端会话中生效。如需永久配置，请将其添加到 ~/.bashrc、~/.zshrc 或相应的配置文件中。'
       },
+      claude: {
+        modelComment: '可用模型：{models}'
+      },
       opencode: {
         title: 'OpenCode 配置示例',
         subtitle: 'opencode.json',
@@ -3176,6 +3179,11 @@ export default {
       mixedSchedulingHint: '启用后可参与 Anthropic/Gemini 分组的调度',
       mixedSchedulingTooltip:
         '！！注意！！ Antigravity Claude 和 Anthropic Claude 无法在同个上下文中使用，如果你同时有 Anthropic 账号和 Antigravity 账号，开启此选项会导致经常 400 报错。开启后，请用分组功能做好 Antigravity 账号和 Anthropic 账号的隔离。一定要弄明白再开启！！',
+      mixedSchedulingCopilot: '允许加入 Anthropic 分组',
+      mixedSchedulingCopilotHint:
+        '启用后该 Copilot 账号可被加入 Anthropic 分组。客户端使用 Anthropic Messages 协议请求时，本服务会自动翻译为 Copilot 格式。',
+      mixedSchedulingCopilotTooltip:
+        '！！注意！！ Copilot 使用点分版本模型 ID（如 claude-sonnet-4.5）。带日期后缀（如 -20250929）的请求会在翻译层自动 strip。Copilot 没有 count_tokens 端点，本服务返回本地估算值。',
       aiCreditsBalance: 'AI Credits',
       allowOverages: '允许超量请求 (AI Credits)',
       allowOveragesTooltip:
@@ -3589,6 +3597,28 @@ export default {
           unlimited: '无限制',
           remaining: '剩余 {n} 次',
           used: '已用 {used}/{total}'
+        }
+      },
+      // Z.AI / 智谱 GLM 相关
+      zai: {
+        quota: {
+          title: 'GLM Coding Plan 使用量',
+          plan: '套餐等级',
+          fiveHourTokens: '5 小时 Token',
+          weeklyTokens: '7 天 Token',
+          mcpMonthly: 'MCP 调用（按月）',
+          used: '已用 {used}/{total}',
+          percentage: '已用 {n}%',
+          resetIn: '{time} 后重置',
+          resetsAt: '将在 {time} 重置',
+          totalTokens: '24 小时 Token 总量',
+          totalCalls: '24 小时调用总数',
+          networkSearches: '24 小时联网搜索',
+          webReads: '24 小时网页阅读',
+          zreadCalls: '24 小时 ZRead 调用',
+          queryWindow: '查询窗口',
+          partialError: '部分指标加载失败',
+          unknownLimit: '未知限额类型'
         }
       },
       // Stats Modal

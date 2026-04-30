@@ -26,7 +26,24 @@
           </span>
         </div>
         <div class="mt-2 flex items-center justify-between border-t border-gray-200 pt-2 dark:border-dark-600">
-          <span class="text-xs text-gray-400">{{ t('admin.accounts.modelCount', { count: modelValue.length }) }}</span>
+          <span class="flex items-center gap-2 text-xs text-gray-400">
+            {{ t('admin.accounts.modelCount', { count: modelValue.length }) }}
+            <span
+              v-if="liveModels && liveModels.length > 0"
+              class="inline-block h-2 w-2 rounded-full bg-green-500"
+              title="Live from /v1/models"
+            ></span>
+            <span
+              v-else-if="liveModelsLoading"
+              class="inline-block h-2 w-2 animate-pulse rounded-full bg-blue-400"
+              title="Loading models..."
+            ></span>
+            <span
+              v-else-if="liveModelsError"
+              class="inline-block h-2 w-2 rounded-full bg-yellow-500"
+              :title="liveModelsError"
+            ></span>
+          </span>
           <svg class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
           </svg>
@@ -133,6 +150,9 @@ const props = defineProps<{
   modelValue: string[]
   platform?: string
   platforms?: string[]
+  liveModels?: { id: string; label?: string }[]
+  liveModelsError?: string
+  liveModelsLoading?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -163,6 +183,16 @@ const normalizedPlatforms = computed(() => {
 })
 
 const availableOptions = computed(() => {
+  // When upstream returned a live model list, prefer it over the hard-coded
+  // per-platform whitelist. Lets third-party Anthropic-compat providers (e.g.
+  // GLM via z.ai) surface their real catalog instead of Claude defaults.
+  if (props.liveModels && props.liveModels.length > 0) {
+    return props.liveModels.map(m => ({
+      value: m.id,
+      label: m.label || m.id,
+    }))
+  }
+
   if (normalizedPlatforms.value.length === 0) {
     return allModels
   }
@@ -219,10 +249,18 @@ const handleEnter = () => {
 
 const fillRelated = () => {
   const newModels = [...props.modelValue]
-  for (const platform of normalizedPlatforms.value) {
-    for (const model of getModelsByPlatform(platform)) {
-      if (!newModels.includes(model)) {
-        newModels.push(model)
+  if (props.liveModels && props.liveModels.length > 0) {
+    for (const m of props.liveModels) {
+      if (!newModels.includes(m.id)) {
+        newModels.push(m.id)
+      }
+    }
+  } else {
+    for (const platform of normalizedPlatforms.value) {
+      for (const model of getModelsByPlatform(platform)) {
+        if (!newModels.includes(model)) {
+          newModels.push(model)
+        }
       }
     }
   }

@@ -227,6 +227,57 @@ const allModelsList: string[] = [
 export const allModels = allModelsList.map(m => ({ value: m, label: m }))
 
 // =====================
+// Anthropic-compat 第三方厂商 preset
+// =====================
+//
+// Zhipu / Moonshot 等第三方提供 Anthropic 兼容的 /v1/messages，但 /v1/models
+// 不可靠（要么 404 要么 passthrough Claude 列表）。前端识别已知 base_url 后立即
+// 显示对应 preset，避免等 800ms debounce + 网络往返才看到结果。后端响应到达后
+// 仍是权威数据，会覆盖这里的 preset。
+export interface AnthropicCompatPreset {
+  name: string
+  hostSubstring: string
+  models: { id: string; display_name: string }[]
+}
+
+const glmPresetModels = [
+  { id: 'glm-5.1', display_name: 'GLM-5.1' },
+  { id: 'glm-4.7', display_name: 'GLM-4.7' },
+  { id: 'glm-4.6', display_name: 'GLM-4.6' },
+  { id: 'glm-4.5', display_name: 'GLM-4.5' },
+  { id: 'glm-4.5-air', display_name: 'GLM-4.5-Air' },
+  { id: 'glm-4.5-flash', display_name: 'GLM-4.5-Flash' }
+]
+
+const kimiPresetModels = [
+  { id: 'kimi-k2-0905-preview', display_name: 'Kimi K2 0905' },
+  { id: 'kimi-k2-0711-preview', display_name: 'Kimi K2 0711' },
+  { id: 'kimi-latest', display_name: 'Kimi Latest' },
+  { id: 'moonshot-v1-128k', display_name: 'Moonshot v1 128k' },
+  { id: 'moonshot-v1-32k', display_name: 'Moonshot v1 32k' },
+  { id: 'moonshot-v1-8k', display_name: 'Moonshot v1 8k' }
+]
+
+export const anthropicCompatPresets: AnthropicCompatPreset[] = [
+  { name: 'Zhipu (BigModel)', hostSubstring: 'open.bigmodel.cn', models: glmPresetModels },
+  { name: 'Z.AI', hostSubstring: 'api.z.ai', models: glmPresetModels },
+  { name: 'Moonshot (Kimi)', hostSubstring: 'api.moonshot.cn', models: kimiPresetModels }
+]
+
+/**
+ * 根据 base_url 查找已知 Anthropic-compat 第三方厂商的模型 preset。
+ * 大小写不敏感，子串匹配（兼容尾随斜杠等变体）。未匹配返回 null。
+ */
+export function lookupAnthropicCompatPreset(baseUrl: string): AnthropicCompatPreset | null {
+  if (!baseUrl) return null
+  const lower = baseUrl.toLowerCase()
+  for (const preset of anthropicCompatPresets) {
+    if (lower.includes(preset.hostSubstring)) return preset
+  }
+  return null
+}
+
+// =====================
 // 预设映射
 // =====================
 

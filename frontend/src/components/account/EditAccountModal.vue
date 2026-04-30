@@ -139,7 +139,13 @@
 
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
-              <ModelWhitelistSelector v-model="allowedModels" :platform="account?.platform || 'anthropic'" />
+              <ModelWhitelistSelector
+                v-model="allowedModels"
+                :platform="account?.platform || 'anthropic'"
+                :live-models="livePreviewModels"
+                :live-models-error="livePreviewError"
+                :live-models-loading="livePreviewLoading"
+              />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
                 <span v-if="allowedModels.length === 0">{{
@@ -1907,17 +1913,34 @@
           <Select v-model="form.status" :options="statusOptions" />
         </div>
 
-        <!-- Mixed Scheduling (only for antigravity accounts, read-only in edit mode) -->
-        <div v-if="account?.platform === 'antigravity'" class="flex items-center gap-2">
-          <label class="flex cursor-not-allowed items-center gap-2 opacity-60">
+        <!-- Mixed Scheduling (antigravity 在编辑模式下只读；copilot 可切换) -->
+        <div
+          v-if="account?.platform === 'antigravity' || account?.platform === 'copilot'"
+          class="flex items-center gap-2"
+        >
+          <label
+            :class="[
+              'flex items-center gap-2',
+              account?.platform === 'copilot'
+                ? 'cursor-pointer'
+                : 'cursor-not-allowed opacity-60',
+            ]"
+          >
             <input
               type="checkbox"
               v-model="mixedScheduling"
-              disabled
-              class="h-4 w-4 cursor-not-allowed rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
+              :disabled="account?.platform !== 'copilot'"
+              :class="[
+                'h-4 w-4 rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500',
+                account?.platform === 'copilot' ? '' : 'cursor-not-allowed',
+              ]"
             />
             <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
-              {{ t('admin.accounts.mixedScheduling') }}
+              {{
+                account?.platform === 'copilot'
+                  ? t('admin.accounts.mixedSchedulingCopilot')
+                  : t('admin.accounts.mixedScheduling')
+              }}
             </span>
           </label>
           <div class="group relative">
@@ -1930,7 +1953,11 @@
             <div
               class="pointer-events-none absolute left-0 top-full z-[100] mt-1.5 w-72 rounded bg-gray-900 px-3 py-2 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100 dark:bg-gray-700"
             >
-              {{ t('admin.accounts.mixedSchedulingTooltip') }}
+              {{
+                account?.platform === 'copilot'
+                  ? t('admin.accounts.mixedSchedulingCopilotTooltip')
+                  : t('admin.accounts.mixedSchedulingTooltip')
+              }}
               <div
                 class="absolute bottom-full left-3 border-4 border-transparent border-b-gray-900 dark:border-b-gray-700"
               ></div>
@@ -2061,7 +2088,8 @@ import {
   getPresetMappingsByPlatform,
   commonErrorCodes,
   buildModelMappingObject,
-  isValidWildcardPattern
+  isValidWildcardPattern,
+  lookupAnthropicCompatPreset
 } from '@/composables/useModelWhitelist'
 
 interface Props {
@@ -2183,6 +2211,12 @@ const modelMappings = ref<ModelMapping[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
+// Live model preview for Anthropic-compat third-party API-key accounts.
+const livePreviewModels = ref<{ id: string; label: string }[]>([])
+const livePreviewError = ref<string>('')
+const livePreviewLoading = ref(false)
+let livePreviewAbort: AbortController | null = null
+let livePreviewDebounceTimer: ReturnType<typeof setTimeout> | null = null
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
 const poolModeEnabled = ref(false)
@@ -2612,6 +2646,40 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       allowedModels.value = []
     }
 
+    // For Anthropic-compatible API-key accounts, fetch the upstream's live
+    // /v1/models using the stored credentials so the whitelist dropdown shows
+    // the real catalog (e.g. GLM models for z.ai) instead of Claude defaults.
+    // The user can override later by typing a fresh api_key (handled below).
+    if (
+      newAccount.platform === 'anthropic' &&
+      newAccount.type === 'apikey' &&
+      typeof newAccount.id === 'number'
+    ) {
+      const accountId = newAccount.id
+      livePreviewLoading.value = true
+      livePreviewError.value = ''
+      adminAPI.accounts
+        .getAvailableModels(accountId)
+        .then(models => {
+          livePreviewModels.value = (models || []).map(m => ({
+            id: m.id,
+            label: m.display_name || m.id
+          }))
+        })
+        .catch((err: unknown) => {
+          livePreviewModels.value = []
+          const e = err as { message?: string }
+          livePreviewError.value = e?.message || 'Failed to load upstream models'
+        })
+        .finally(() => {
+          livePreviewLoading.value = false
+        })
+    } else {
+      livePreviewModels.value = []
+      livePreviewError.value = ''
+      livePreviewLoading.value = false
+    }
+
     // Load pool mode
     poolModeEnabled.value = credentials.pool_mode === true
     poolModeRetryCount.value = normalizePoolModeRetryCount(
@@ -2749,6 +2817,84 @@ watch(
   },
   { immediate: true }
 )
+
+// Debounced live /v1/models preview when the user types a fresh
+// (base_url + api_key) for an Anthropic-compat API-key account. Lets the
+// dropdown immediately reflect the new endpoint's catalog.
+const ANTHROPIC_OFFICIAL_BASE_URLS_EDIT = new Set([
+  'https://api.anthropic.com',
+  'https://api.anthropic.com/'
+])
+
+const triggerEditLivePreview = () => {
+  if (livePreviewDebounceTimer) {
+    clearTimeout(livePreviewDebounceTimer)
+    livePreviewDebounceTimer = null
+  }
+
+  const acct = props.account
+  if (!acct || acct.platform !== 'anthropic' || acct.type !== 'apikey') return
+
+  const baseUrl = editBaseUrl.value.trim()
+  const apiKey = editApiKey.value.trim()
+
+  // Only fire when user has typed a NEW api_key. Empty means keep stored,
+  // which is already handled by the on-open getAvailableModels call above.
+  if (!apiKey) return
+  if (!baseUrl || ANTHROPIC_OFFICIAL_BASE_URLS_EDIT.has(baseUrl)) return
+
+  // Instant feedback for known third-party Anthropic-compat domains
+  // (Zhipu/GLM, Z.AI, Moonshot/Kimi). Their /v1/models is unreliable, so
+  // we seed from the curated preset registry without waiting for network.
+  const preset = lookupAnthropicCompatPreset(baseUrl)
+  if (preset) {
+    if (livePreviewAbort) {
+      livePreviewAbort.abort()
+      livePreviewAbort = null
+    }
+    livePreviewModels.value = preset.models.map(m => ({
+      id: m.id,
+      label: m.display_name || m.id
+    }))
+    livePreviewError.value = ''
+    livePreviewLoading.value = false
+    return
+  }
+
+  livePreviewDebounceTimer = setTimeout(async () => {
+    if (livePreviewAbort) livePreviewAbort.abort()
+    const controller = new AbortController()
+    livePreviewAbort = controller
+    livePreviewLoading.value = true
+    livePreviewError.value = ''
+
+    try {
+      const result = await adminAPI.accounts.previewAvailableModels(
+        { platform: 'anthropic', base_url: baseUrl, api_key: apiKey },
+        controller.signal
+      )
+      if (controller.signal.aborted) return
+      livePreviewModels.value = (result || []).map(m => ({
+        id: m.id,
+        label: m.display_name || m.id
+      }))
+    } catch (err: unknown) {
+      if (controller.signal.aborted) return
+      livePreviewModels.value = []
+      const e = err as { message?: string }
+      livePreviewError.value = e?.message || 'Failed to load models from upstream'
+    } finally {
+      if (livePreviewAbort === controller) {
+        livePreviewAbort = null
+      }
+      livePreviewLoading.value = false
+    }
+  }, 800)
+}
+
+watch([editBaseUrl, editApiKey], () => {
+  triggerEditLivePreview()
+})
 
 // Model mapping helpers
 const addModelMapping = () => {
@@ -3469,6 +3615,18 @@ const handleSubmit = async () => {
         newExtra.allow_overages = true
       } else {
         delete newExtra.allow_overages
+      }
+      updatePayload.extra = newExtra
+    }
+
+    // For copilot accounts, persist mixed_scheduling toggle in extra
+    if (props.account.platform === 'copilot') {
+      const currentExtra = (props.account.extra as Record<string, unknown>) || {}
+      const newExtra: Record<string, unknown> = { ...currentExtra }
+      if (mixedScheduling.value) {
+        newExtra.mixed_scheduling = true
+      } else {
+        delete newExtra.mixed_scheduling
       }
       updatePayload.extra = newExtra
     }
