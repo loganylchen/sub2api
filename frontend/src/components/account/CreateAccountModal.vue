@@ -301,7 +301,7 @@
           v-if="accountCategory === 'service_account'"
           class="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:border-sky-800/40 dark:bg-sky-900/20 dark:text-sky-200"
         >
-          <p>使用 Google Cloud Service Account JSON 通过 Vertex AI 调用 Anthropic Claude。建议配置模型映射，将客户端 Claude 模型名映射到 Vertex 模型 ID。</p>
+          <p>{{ t('admin.accounts.vertexAnthropicHint') }}</p>
         </div>
       </div>
 
@@ -504,7 +504,7 @@
           v-if="accountCategory === 'service_account'"
           class="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:border-sky-800/40 dark:bg-sky-900/20 dark:text-sky-200"
         >
-          <p>使用 Google Cloud Service Account JSON 访问 Vertex AI Gemini。建议将 Vertex 账号放入独立分组，避免和 AI Studio/Gemini OAuth 同模型混调。</p>
+          <p>{{ t('admin.accounts.vertexGeminiHint') }}</p>
         </div>
 
         <!-- OAuth Type Selection (only show when oauth-based is selected) -->
@@ -852,10 +852,10 @@
               <div class="min-w-0">
                 <div class="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-white">
                   <Icon name="upload" size="sm" />
-                  <span>{{ vertexClientEmail ? '已读取 Service Account JSON' : '拖入 Service Account JSON' }}</span>
+                  <span>{{ vertexClientEmail ? t('admin.accounts.vertexSaJsonLoaded') : t('admin.accounts.vertexSaJsonDrop') }}</span>
                 </div>
                 <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  {{ vertexClientEmail ? '密钥内容不会在表单中显示。' : '把 .json 文件拖到这里，或点击按钮选择文件。' }}
+                  {{ vertexClientEmail ? t('admin.accounts.vertexSaJsonKeyHidden') : t('admin.accounts.vertexSaJsonDropHint') }}
                 </p>
               </div>
               <button
@@ -864,7 +864,7 @@
                 @click="vertexServiceAccountFileInput?.click()"
               >
                 <Icon name="upload" size="sm" />
-                选择 JSON
+                {{ t('admin.accounts.vertexSaJsonSelectBtn') }}
               </button>
             </div>
             <div
@@ -875,7 +875,7 @@
               <div class="truncate">Client Email: <span class="font-mono">{{ vertexClientEmail }}</span></div>
             </div>
           </div>
-          <p class="input-hint">上传或拖入 JSON 后会自动读取 project_id，密钥内容仅用于创建账号提交。</p>
+          <p class="input-hint">{{ t('admin.accounts.vertexSaJsonUploadHint') }}</p>
         </div>
 
         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -886,7 +886,7 @@
               type="text"
               class="input font-mono"
               readonly
-              placeholder="从 JSON 自动读取"
+              :placeholder="t('admin.accounts.vertexProjectIdPlaceholder')"
             />
           </div>
           <div>
@@ -897,7 +897,7 @@
               class="input font-mono"
             >
               <optgroup
-                v-for="group in vertexLocationOptions"
+                v-for="group in VERTEX_LOCATION_OPTIONS"
                 :key="group.label"
                 :label="group.label"
               >
@@ -910,7 +910,7 @@
                 </option>
               </optgroup>
             </select>
-            <p class="input-hint">不同 Vertex 模型可用 location 可能不同，这里选择账号默认 endpoint location。</p>
+            <p class="input-hint">{{ t('admin.accounts.vertexLocationHint') }}</p>
           </div>
         </div>
       </div>
@@ -2982,6 +2982,7 @@
         :show-mobile-refresh-token-option="form.platform === 'openai'"
         :show-session-token-option="false"
         :show-access-token-option="false"
+        :show-codex-session-import-option="form.platform === 'openai'"
         :platform="form.platform"
         :show-project-id="geminiOAuthType === 'code_assist'"
         @generate-url="handleGenerateUrl"
@@ -2989,6 +2990,7 @@
         @validate-refresh-token="handleValidateRefreshToken"
         @validate-mobile-refresh-token="handleOpenAIValidateMobileRT"
         @validate-session-token="handleValidateSessionToken"
+        @import-codex-session="handleOpenAIImportCodexSession"
       />
 
     </div>
@@ -3338,6 +3340,7 @@ import type {
   AccountType,
   CheckMixedChannelResponse,
   CreateAccountRequest,
+  CodexSessionImportMessage,
   OpenAICompactMode
 } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
@@ -3351,6 +3354,7 @@ import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import { applyInterceptWarmup } from '@/components/account/credentialsBuilder'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
+import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
 import {
   OPENAI_WS_MODE_CTX_POOL,
   OPENAI_WS_MODE_OFF,
@@ -3370,6 +3374,7 @@ interface OAuthFlowExposed {
   sessionKey: string
   refreshToken: string
   sessionToken: string
+  codexSession: string
   inputMethod: AuthInputMethod
   reset: () => void
 }
@@ -3556,52 +3561,6 @@ const vertexProjectId = ref('')
 const vertexClientEmail = ref('')
 const vertexLocation = ref('global')
 const vertexServiceAccountDragActive = ref(false)
-const vertexLocationOptions = [
-  {
-    label: 'Common',
-    options: [
-      { value: 'us-central1', label: 'us-central1 (Iowa)' },
-      { value: 'global', label: 'global' },
-      { value: 'us', label: 'us' },
-      { value: 'eu', label: 'eu' }
-    ]
-  },
-  {
-    label: 'United States',
-    options: [
-      { value: 'us-east1', label: 'us-east1 (South Carolina)' },
-      { value: 'us-east4', label: 'us-east4 (Northern Virginia)' },
-      { value: 'us-east5', label: 'us-east5 (Columbus)' },
-      { value: 'us-south1', label: 'us-south1 (Dallas)' },
-      { value: 'us-west1', label: 'us-west1 (Oregon)' },
-      { value: 'us-west4', label: 'us-west4 (Las Vegas)' }
-    ]
-  },
-  {
-    label: 'Europe',
-    options: [
-      { value: 'europe-west1', label: 'europe-west1 (Belgium)' },
-      { value: 'europe-west2', label: 'europe-west2 (London)' },
-      { value: 'europe-west3', label: 'europe-west3 (Frankfurt)' },
-      { value: 'europe-west4', label: 'europe-west4 (Netherlands)' },
-      { value: 'europe-west6', label: 'europe-west6 (Zurich)' },
-      { value: 'europe-west8', label: 'europe-west8 (Milan)' },
-      { value: 'europe-west9', label: 'europe-west9 (Paris)' }
-    ]
-  },
-  {
-    label: 'Asia Pacific',
-    options: [
-      { value: 'asia-east1', label: 'asia-east1 (Taiwan)' },
-      { value: 'asia-east2', label: 'asia-east2 (Hong Kong)' },
-      { value: 'asia-northeast1', label: 'asia-northeast1 (Tokyo)' },
-      { value: 'asia-northeast3', label: 'asia-northeast3 (Seoul)' },
-      { value: 'asia-south1', label: 'asia-south1 (Mumbai)' },
-      { value: 'asia-southeast1', label: 'asia-southeast1 (Singapore)' },
-      { value: 'australia-southeast1', label: 'australia-southeast1 (Sydney)' }
-    ]
-  }
-] as const
 const tempUnschedEnabled = ref(false)
 const tempUnschedRules = ref<TempUnschedRuleForm[]>([])
 const getModelMappingKey = createStableObjectKeyResolver<ModelMapping>('create-model-mapping')
@@ -4605,7 +4564,7 @@ const applyVertexServiceAccountJson = (value: string) => {
     const clientEmail = typeof parsed.client_email === 'string' ? parsed.client_email.trim() : ''
     const privateKey = typeof parsed.private_key === 'string' ? parsed.private_key.trim() : ''
     if (!projectId || !clientEmail || !privateKey) {
-      appStore.showError('Service Account JSON 缺少 project_id、client_email 或 private_key')
+      appStore.showError(t('admin.accounts.vertexSaJsonMissingFields'))
       return false
     }
     vertexProjectId.value = projectId
@@ -4613,7 +4572,7 @@ const applyVertexServiceAccountJson = (value: string) => {
     vertexServiceAccountJson.value = JSON.stringify(parsed)
     return true
   } catch {
-    appStore.showError('Service Account JSON 格式无效')
+    appStore.showError(t('admin.accounts.vertexSaJsonInvalid'))
     return false
   }
 }
@@ -4760,7 +4719,7 @@ const handleSubmit = async () => {
       return
     }
     if (!vertexLocation.value.trim()) {
-      appStore.showError('请填写 Vertex location')
+      appStore.showError(t('admin.accounts.vertexLocationRequired'))
       return
     }
     const credentials: Record<string, unknown> = {
@@ -5142,6 +5101,113 @@ const handleOpenAIExchange = async (authCode: string) => {
 // OpenAI 手动 RT 批量验证和创建
 // OpenAI Mobile RT client_id
 const OPENAI_MOBILE_RT_CLIENT_ID = 'app_LlGpXReQgckcGGUo2JrYvtJK'
+
+const buildOpenAICodexImportCredentialExtras = (): Record<string, unknown> | null => {
+  const credentials: Record<string, unknown> = {}
+  if (!isOpenAIModelRestrictionDisabled.value) {
+    const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    if (modelMapping) {
+      credentials.model_mapping = modelMapping
+    }
+  }
+
+  const compactModelMapping = buildOpenAICompactModelMapping()
+  if (compactModelMapping) {
+    credentials.compact_model_mapping = compactModelMapping
+  }
+
+  if (!applyTempUnschedConfig(credentials)) {
+    return null
+  }
+  return credentials
+}
+
+const formatCodexImportMessages = (messages?: CodexSessionImportMessage[]) => {
+  return (messages || [])
+    .map((item) => {
+      const name = item.name ? ` ${item.name}` : ''
+      return `#${item.index}${name}: ${item.message}`
+    })
+    .join('\n')
+}
+
+const handleOpenAIImportCodexSession = async (content: string) => {
+  const oauthClient = openaiOAuth
+  const trimmed = content.trim()
+  if (!trimmed) {
+    oauthClient.error.value = t('admin.accounts.oauth.openai.codexSessionEmpty')
+    return
+  }
+
+  const credentialExtras = buildOpenAICodexImportCredentialExtras()
+  if (credentialExtras === null) {
+    return
+  }
+
+  oauthClient.loading.value = true
+  oauthClient.error.value = ''
+
+  try {
+    const extra = buildOpenAIExtra()
+    const result = await adminAPI.accounts.importCodexSession({
+      content: trimmed,
+      name: form.name,
+      notes: form.notes || null,
+      proxy_id: form.proxy_id,
+      concurrency: form.concurrency,
+      load_factor: form.load_factor ?? undefined,
+      priority: form.priority,
+      rate_multiplier: form.rate_multiplier,
+      group_ids: form.group_ids,
+      expires_at: form.expires_at,
+      auto_pause_on_expired: autoPauseOnExpired.value,
+      credential_extras: Object.keys(credentialExtras).length > 0 ? credentialExtras : undefined,
+      extra,
+      update_existing: true
+    })
+
+    const successCount = result.created + result.updated
+    const params = {
+      created: result.created,
+      updated: result.updated,
+      skipped: result.skipped,
+      failed: result.failed
+    }
+
+    if (successCount > 0 && result.failed === 0) {
+      appStore.showSuccess(t('admin.accounts.oauth.openai.codexSessionImportSuccess', params))
+      emit('created')
+      handleClose()
+      return
+    }
+
+    const errorText = formatCodexImportMessages(result.errors)
+    const warningText = formatCodexImportMessages(result.warnings)
+    oauthClient.error.value = [errorText, warningText].filter(Boolean).join('\n')
+
+    if (result.failed === 0) {
+      appStore.showWarning(t('admin.accounts.oauth.openai.codexSessionImportSuccess', params))
+      return
+    }
+
+    if (successCount > 0) {
+      appStore.showWarning(t('admin.accounts.oauth.openai.codexSessionImportPartial', params))
+      emit('created')
+      return
+    }
+
+    appStore.showError(t('admin.accounts.oauth.openai.codexSessionImportFailed'))
+  } catch (error: any) {
+    oauthClient.error.value =
+      error.response?.data?.detail ||
+      error.response?.data?.message ||
+      error.message ||
+      t('admin.accounts.oauth.openai.codexSessionImportFailed')
+    appStore.showError(oauthClient.error.value)
+  } finally {
+    oauthClient.loading.value = false
+  }
+}
 
 // OpenAI RT 批量验证和创建（共享逻辑）
 const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string) => {

@@ -16,6 +16,8 @@ import type {
   TempUnschedulableStatus,
   AdminDataPayload,
   AdminDataImportResult,
+  CodexSessionImportRequest,
+  CodexSessionImportResult,
   CheckMixedChannelRequest,
   CheckMixedChannelResponse
 } from '@/types'
@@ -370,8 +372,8 @@ export async function batchUpdateCredentials(request: {
  * @returns Success confirmation
  */
 export async function bulkUpdate(
-  accountIds: number[],
-  updates: Record<string, unknown>
+  accountIdsOrPayload: number[] | Record<string, unknown>,
+  updates?: Record<string, unknown>
 ): Promise<{
   success: number
   failed: number
@@ -379,16 +381,19 @@ export async function bulkUpdate(
   failed_ids?: number[]
   results: Array<{ account_id: number; success: boolean; error?: string }>
   }> {
+  const payload = Array.isArray(accountIdsOrPayload)
+    ? {
+        account_ids: accountIdsOrPayload,
+        ...(updates ?? {})
+      }
+    : accountIdsOrPayload
   const { data } = await apiClient.post<{
     success: number
     failed: number
     success_ids?: number[]
     failed_ids?: number[]
     results: Array<{ account_id: number; success: boolean; error?: string }>
-  }>('/admin/accounts/bulk-update', {
-    account_ids: accountIds,
-    ...updates
-  })
+  }>('/admin/accounts/bulk-update', payload)
   return data
 }
 
@@ -571,6 +576,11 @@ export async function importData(payload: {
     data: payload.data,
     skip_default_group_bind: payload.skip_default_group_bind
   })
+  return data
+}
+
+export async function importCodexSession(payload: CodexSessionImportRequest): Promise<CodexSessionImportResult> {
+  const { data } = await apiClient.post<CodexSessionImportResult>('/admin/accounts/import/codex-session', payload)
   return data
 }
 
@@ -759,6 +769,7 @@ export const accountsAPI = {
   syncFromCrs,
   exportData,
   importData,
+  importCodexSession,
   getAntigravityDefaultModelMapping,
   getCopilotQuota,
   getZAIQuota,
