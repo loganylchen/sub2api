@@ -8,9 +8,9 @@
 # Quick Start:
 #   1. Copy .env.example to .env and configure
 #   2. mkdir -p data postgres_data redis_data
-#   3. docker-compose -f docker-compose.local.yml up -d
+#   3. docker-compose -f docker-compose.local.yml up -d --build
 #   4. Check logs: docker-compose -f docker-compose.local.yml logs -f sub2api
-#   5. Access: http://localhost:8080
+#   5. Access: http://localhost:8081
 #
 # Migration to New Server:
 #   1. docker-compose -f docker-compose.local.yml down
@@ -24,15 +24,21 @@ services:
   # Sub2API Application
   # ===========================================================================
   sub2api:
-    image: weishaw/sub2api:latest
-    container_name: sub2api
+    image: sub2api:local
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        VERSION: local
+        COMMIT: ${GIT_COMMIT:-local}
+    container_name: public-sub2api
     restart: unless-stopped
     ulimits:
       nofile:
         soft: 100000
         hard: 100000
     ports:
-      - "${BIND_HOST:-0.0.0.0}:${SERVER_PORT:-8080}:8080"
+      - "${BIND_HOST:-0.0.0.0}:${SERVER_PORT:-8081}:8080"
     volumes:
       # Local directory mapping for easy migration
       - ./data:/app/data
@@ -176,7 +182,7 @@ services:
   # ===========================================================================
   postgres:
     image: postgres:18-alpine
-    container_name: sub2api-postgres
+    container_name: public-postgres
     restart: unless-stopped
     ulimits:
       nofile:
@@ -207,7 +213,7 @@ services:
   # ===========================================================================
   redis:
     image: redis:8-alpine
-    container_name: sub2api-redis
+    container_name: public-redis
     restart: unless-stopped
     ulimits:
       nofile:
