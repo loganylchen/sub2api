@@ -468,7 +468,7 @@ export interface PaginationConfig {
 
 // ==================== API Key & Group Types ====================
 
-export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity'
+export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'copilot'
 
 export type SubscriptionType = 'standard' | 'subscription'
 
@@ -642,7 +642,7 @@ export interface UpdateGroupRequest {
 
 // ==================== Account & Proxy Types ====================
 
-export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity'
+export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'copilot'
 export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
 export type OAuthAddMethod = 'oauth' | 'setup-token'
 export type ProxyProtocol = 'http' | 'https' | 'socks5' | 'socks5h'
@@ -898,6 +898,16 @@ export interface AccountUsageInfo {
   gemini_pro_minute?: UsageProgress | null
   gemini_flash_minute?: UsageProgress | null
   antigravity_quota?: Record<string, AntigravityModelQuota> | null
+  // Copilot 月度配额快照（无 5h/7d 窗口，仅显示 premium interactions 总量）
+  copilot_quota?: {
+    plan?: string
+    plan_type?: string
+    premium_used: number
+    premium_limit: number
+    premium_percentage: number
+    premium_overage_permitted?: boolean
+    quota_reset_date?: string
+  } | null
   ai_credits?: Array<{
     credit_type?: string
     amount?: number

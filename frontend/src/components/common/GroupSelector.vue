@@ -70,6 +70,12 @@ const filteredGroups = computed(() => {
       (g) => g.platform === 'antigravity' || g.platform === 'anthropic' || g.platform === 'gemini'
     )
   }
+  // copilot 账户启用混合调度后，仅可选择 anthropic 分组（Copilot 没有 Gemini 协议翻译）
+  if (props.platform === 'copilot' && props.mixedScheduling) {
+    return props.groups.filter(
+      (g) => g.platform === 'copilot' || g.platform === 'anthropic'
+    )
+  }
   // 默认：只能选择同 platform 的分组
   return props.groups.filter((g) => g.platform === props.platform)
 })

@@ -222,6 +222,20 @@ type UsageInfo struct {
 
 	// 获取 usage 时的错误信息（降级返回，而非 500）
 	Error string `json:"error,omitempty"`
+
+	// Copilot 配额（无 5h/7d 概念，按月度 premium interactions 展示）
+	CopilotQuota *CopilotQuotaSnapshot `json:"copilot_quota,omitempty"`
+}
+
+// CopilotQuotaSnapshot 列表外侧用的 Copilot 配额快照（用于绘制单条总量进度条）。
+type CopilotQuotaSnapshot struct {
+	Plan                    string  `json:"plan,omitempty"`
+	PlanType                string  `json:"plan_type,omitempty"`
+	PremiumUsed             int64   `json:"premium_used"`
+	PremiumLimit            int64   `json:"premium_limit"`
+	PremiumPercentage       float64 `json:"premium_percentage"`
+	PremiumOveragePermitted bool    `json:"premium_overage_permitted,omitempty"`
+	QuotaResetDate          string  `json:"quota_reset_date,omitempty"`
 }
 
 // ClaudeUsageResponse Anthropic API返回的usage结构
@@ -263,6 +277,8 @@ type AccountUsageService struct {
 	usageFetcher            ClaudeUsageFetcher
 	geminiQuotaService      *GeminiQuotaService
 	antigravityQuotaFetcher *AntigravityQuotaFetcher
+	zaiQuotaService         *ZAIQuotaService
+	copilotGatewayService   *CopilotGatewayService
 	cache                   *UsageCache
 	identityCache           IdentityCache
 	tlsFPProfileService     *TLSFingerprintProfileService
@@ -275,6 +291,8 @@ func NewAccountUsageService(
 	usageFetcher ClaudeUsageFetcher,
 	geminiQuotaService *GeminiQuotaService,
 	antigravityQuotaFetcher *AntigravityQuotaFetcher,
+	zaiQuotaService *ZAIQuotaService,
+	copilotGatewayService *CopilotGatewayService,
 	cache *UsageCache,
 	identityCache IdentityCache,
 	tlsFPProfileService *TLSFingerprintProfileService,
@@ -285,6 +303,8 @@ func NewAccountUsageService(
 		usageFetcher:            usageFetcher,
 		geminiQuotaService:      geminiQuotaService,
 		antigravityQuotaFetcher: antigravityQuotaFetcher,
+		zaiQuotaService:         zaiQuotaService,
+		copilotGatewayService:   copilotGatewayService,
 		cache:                   cache,
 		identityCache:           identityCache,
 		tlsFPProfileService:     tlsFPProfileService,
@@ -320,6 +340,24 @@ func (s *AccountUsageService) GetUsage(ctx context.Context, accountID int64) (*U
 	// Antigravity 平台：使用 AntigravityQuotaFetcher 获取额度
 	if account.Platform == PlatformAntigravity {
 		usage, err := s.getAntigravityUsage(ctx, account)
+		if err == nil {
+			s.tryClearRecoverableAccountError(ctx, account)
+		}
+		return usage, err
+	}
+
+	// Copilot 平台：仅展示月度 premium interactions 总量
+	if account.Platform == PlatformCopilot {
+		usage, err := s.getCopilotUsage(ctx, account)
+		if err == nil {
+			s.tryClearRecoverableAccountError(ctx, account)
+		}
+		return usage, err
+	}
+
+	// Z.AI / 智谱 GLM Coding Plan（platform=anthropic + base_url 含 z.ai/bigmodel）
+	if IsZAIAccount(account) {
+		usage, err := s.getZAIUsage(ctx, account)
 		if err == nil {
 			s.tryClearRecoverableAccountError(ctx, account)
 		}

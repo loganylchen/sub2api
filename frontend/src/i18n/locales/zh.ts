@@ -708,6 +708,9 @@ export default {
         modelComment: '如果你有 Gemini 3 权限可以填：gemini-3-pro-preview',
         note: '这些环境变量将在当前终端会话中生效。如需永久配置，请将其添加到 ~/.bashrc、~/.zshrc 或相应的配置文件中。'
       },
+      claude: {
+        modelComment: '可用模型：{models}'
+      },
       opencode: {
         title: 'OpenCode 配置示例',
         subtitle: 'opencode.json',
@@ -2007,6 +2010,7 @@ export default {
         openai: 'OpenAI',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
+        copilot: 'Copilot',
       },
       saving: '保存中...',
       noGroups: '暂无分组',
@@ -2761,6 +2765,7 @@ export default {
         anthropic: 'Anthropic',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
+        copilot: 'Copilot',
       },
       types: {
         oauth: 'OAuth',
@@ -3174,6 +3179,11 @@ export default {
       mixedSchedulingHint: '启用后可参与 Anthropic/Gemini 分组的调度',
       mixedSchedulingTooltip:
         '！！注意！！ Antigravity Claude 和 Anthropic Claude 无法在同个上下文中使用，如果你同时有 Anthropic 账号和 Antigravity 账号，开启此选项会导致经常 400 报错。开启后，请用分组功能做好 Antigravity 账号和 Anthropic 账号的隔离。一定要弄明白再开启！！',
+      mixedSchedulingCopilot: '允许加入 Anthropic 分组',
+      mixedSchedulingCopilotHint:
+        '启用后该 Copilot 账号可被加入 Anthropic 分组。客户端使用 Anthropic Messages 协议请求时，本服务会自动翻译为 Copilot 格式。',
+      mixedSchedulingCopilotTooltip:
+        '！！注意！！ Copilot 使用点分版本模型 ID（如 claude-sonnet-4.5）。带日期后缀（如 -20250929）的请求会在翻译层自动 strip。Copilot 没有 count_tokens 端点，本服务返回本地估算值。',
       aiCreditsBalance: 'AI Credits',
       allowOverages: '允许超量请求 (AI Credits)',
       allowOveragesTooltip:
@@ -3527,6 +3537,7 @@ export default {
       openaiAccount: 'OpenAI 账号',
       geminiAccount: 'Gemini 账号',
       antigravityAccount: 'Antigravity 账号',
+      copilotAccount: 'Copilot 账号',
       inputMethod: '输入方式',
       reAuthorizedSuccess: '账号重新授权成功',
       // Test Modal
@@ -3556,6 +3567,60 @@ export default {
       imageTestMode: '模式：生图测试',
       imagePreview: '生成结果：',
       imageReceived: '已收到第 {count} 张测试图片',
+      // Copilot 相关
+      copilot: {
+        githubToken: 'GitHub 个人访问令牌 *',
+        githubTokenHint: '具有 Copilot 访问权限的 GitHub PAT（ghp_xxx 或 github_pat_xxx）',
+        pleaseEnterToken: '请输入 GitHub 个人访问令牌',
+        baseUrlHint: '默认：https://api.individual.githubcopilot.com，仅在使用自定义端点时修改。',
+        deviceOAuth: 'GitHub 登录（推荐）',
+        deviceOAuthDesc: '通过浏览器登录，支持组织 Copilot',
+        patMethod: '个人访问令牌',
+        patMethodDesc: '手动输入具有 copilot 权限的 PAT',
+        deviceOAuthIntro: '点击下方按钮开始 GitHub 认证。认证码将出现在页面上——请在打开的浏览器窗口中输入。',
+        startAuth: '开始 GitHub 认证',
+        waitingForAuth: '等待授权...',
+        openBrowser: '请在浏览器中打开以下链接并输入下方的验证码：',
+        enterCode: '请输入此验证码：',
+        authSuccess: 'GitHub 认证成功！',
+        loggedInAs: '已登录为 {login}',
+        tryAgain: '重试',
+        deviceFlowError: '设备认证流程启动失败',
+        pleaseCompleteAuth: '请先完成 GitHub 认证',
+        modelMapping: 'Copilot 模型映射',
+        modelMappingHint: '将请求模型名映射到 Copilot 实际模型名（如将 claude-sonnet-4-5 映射到 claude-sonnet-4.5）。留空则使用内置默认映射（自动横杠↔点转换）。',
+        quota: {
+          title: 'Copilot 使用量',
+          plan: '套餐类型',
+          premiumInteractions: 'Premium 对话',
+          resetDate: '下次重置',
+          unlimited: '无限制',
+          remaining: '剩余 {n} 次',
+          used: '已用 {used}/{total}'
+        }
+      },
+      // Z.AI / 智谱 GLM 相关
+      zai: {
+        quota: {
+          title: 'GLM Coding Plan 使用量',
+          plan: '套餐等级',
+          fiveHourTokens: '5 小时 Token',
+          weeklyTokens: '7 天 Token',
+          mcpMonthly: 'MCP 调用（按月）',
+          used: '已用 {used}/{total}',
+          percentage: '已用 {n}%',
+          resetIn: '{time} 后重置',
+          resetsAt: '将在 {time} 重置',
+          totalTokens: '24 小时 Token 总量',
+          totalCalls: '24 小时调用总数',
+          networkSearches: '24 小时联网搜索',
+          webReads: '24 小时网页阅读',
+          zreadCalls: '24 小时 ZRead 调用',
+          queryWindow: '查询窗口',
+          partialError: '部分指标加载失败',
+          unknownLimit: '未知限额类型'
+        }
+      },
       // Stats Modal
       viewStats: '查看统计',
       usageStatistics: '使用统计',

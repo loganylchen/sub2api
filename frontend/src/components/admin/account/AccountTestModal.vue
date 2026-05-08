@@ -165,6 +165,137 @@
         </Transition>
       </Teleport>
 
+      <!-- Copilot Quota Panel -->
+      <div v-if="account?.platform === 'copilot'" class="rounded-xl border border-gray-200 dark:border-dark-500">
+        <div class="flex items-center justify-between rounded-t-xl border-b border-gray-200 bg-gray-50 px-4 py-2.5 dark:border-dark-500 dark:bg-dark-700">
+          <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.accounts.copilot.quota.title') }}</span>
+          <button
+            type="button"
+            @click="loadCopilotQuota"
+            :disabled="loadingQuota"
+            class="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-700 disabled:opacity-50 dark:text-gray-400 dark:hover:bg-dark-500 dark:hover:text-gray-200"
+          >
+            <Icon v-if="loadingQuota" name="refresh" size="sm" class="animate-spin" :stroke-width="2" />
+            <Icon v-else name="refresh" size="sm" :stroke-width="2" />
+            {{ t('common.refresh') }}
+          </button>
+        </div>
+        <div class="px-4 py-3">
+          <div v-if="quotaError" class="text-xs text-red-500 dark:text-red-400">{{ quotaError }}</div>
+          <div v-else-if="copilotQuota" class="space-y-2 text-sm">
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500 dark:text-gray-400">{{ t('admin.accounts.copilot.quota.plan') }}</span>
+              <span class="font-medium text-gray-900 dark:text-gray-100">{{ copilotQuota.plan_type || copilotQuota.plan || '—' }}</span>
+            </div>
+            <div v-if="copilotQuota.premium_interactions" class="flex items-center justify-between">
+              <span class="text-gray-500 dark:text-gray-400">{{ t('admin.accounts.copilot.quota.premiumInteractions') }}</span>
+              <span class="font-medium text-gray-900 dark:text-gray-100">
+                <template v-if="copilotQuota.premium_interactions.entitlement === 0 || copilotQuota.premium_interactions.entitlement == null">
+                  {{ t('admin.accounts.copilot.quota.unlimited') }}
+                </template>
+                <template v-else>
+                  {{ t('admin.accounts.copilot.quota.used', { used: copilotQuota.premium_interactions.used ?? 0, total: copilotQuota.premium_interactions.entitlement }) }}
+                </template>
+              </span>
+            </div>
+            <div v-if="copilotQuota.quota_reset_date" class="flex items-center justify-between">
+              <span class="text-gray-500 dark:text-gray-400">{{ t('admin.accounts.copilot.quota.resetDate') }}</span>
+              <span class="font-medium text-gray-900 dark:text-gray-100">{{ copilotQuota.quota_reset_date }}</span>
+            </div>
+            <div v-if="copilotQuota.chat" class="flex items-center justify-between">
+              <span class="text-gray-500 dark:text-gray-400">Chat</span>
+              <span class="font-medium text-gray-900 dark:text-gray-100">
+                <template v-if="copilotQuota.chat.entitlement === 0 || copilotQuota.chat.entitlement == null">
+                  {{ t('admin.accounts.copilot.quota.unlimited') }}
+                </template>
+                <template v-else>
+                  {{ t('admin.accounts.copilot.quota.remaining', { n: (copilotQuota.chat.entitlement ?? 0) - (copilotQuota.chat.used ?? 0) }) }}
+                </template>
+              </span>
+            </div>
+            <div v-if="copilotQuota.completions" class="flex items-center justify-between">
+              <span class="text-gray-500 dark:text-gray-400">Completions</span>
+              <span class="font-medium text-gray-900 dark:text-gray-100">
+                <template v-if="copilotQuota.completions.entitlement === 0 || copilotQuota.completions.entitlement == null">
+                  {{ t('admin.accounts.copilot.quota.unlimited') }}
+                </template>
+                <template v-else>
+                  {{ t('admin.accounts.copilot.quota.remaining', { n: (copilotQuota.completions.entitlement ?? 0) - (copilotQuota.completions.used ?? 0) }) }}
+                </template>
+              </span>
+            </div>
+          </div>
+          <div v-else class="text-xs text-gray-400 dark:text-gray-500">{{ t('common.loading') }}...</div>
+        </div>
+      </div>
+
+      <!-- Z.AI / GLM Quota Panel -->
+      <div v-if="isZAIAccount" class="rounded-xl border border-gray-200 dark:border-dark-500">
+        <div class="flex items-center justify-between rounded-t-xl border-b border-gray-200 bg-gray-50 px-4 py-2.5 dark:border-dark-500 dark:bg-dark-700">
+          <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.accounts.zai.quota.title') }}</span>
+          <button
+            type="button"
+            @click="loadZAIQuota"
+            :disabled="loadingZaiQuota"
+            class="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-700 disabled:opacity-50 dark:text-gray-400 dark:hover:bg-dark-500 dark:hover:text-gray-200"
+          >
+            <Icon v-if="loadingZaiQuota" name="refresh" size="sm" class="animate-spin" :stroke-width="2" />
+            <Icon v-else name="refresh" size="sm" :stroke-width="2" />
+            {{ t('common.refresh') }}
+          </button>
+        </div>
+        <div class="px-4 py-3">
+          <div v-if="zaiQuotaError" class="text-xs text-red-500 dark:text-red-400">{{ zaiQuotaError }}</div>
+          <div v-else-if="zaiQuota" class="space-y-2 text-sm">
+            <div v-if="zaiQuota.level || zaiQuota.platform" class="flex items-center justify-between">
+              <span class="text-gray-500 dark:text-gray-400">{{ t('admin.accounts.zai.quota.plan') }}</span>
+              <span class="font-medium text-gray-900 dark:text-gray-100">{{ zaiQuota.level || zaiQuota.platform }}</span>
+            </div>
+            <div
+              v-for="(limit, idx) in zaiQuota.limits || []"
+              :key="`zai-limit-${idx}`"
+              class="flex items-start justify-between gap-3"
+            >
+              <span class="text-gray-500 dark:text-gray-400">{{ formatZaiLimitLabel(limit) }}</span>
+              <span class="text-right font-medium text-gray-900 dark:text-gray-100">
+                <div>{{ formatZaiLimitValue(limit) }}</div>
+                <div class="text-xs text-gray-400 dark:text-gray-500">
+                  {{ t('admin.accounts.zai.quota.percentage', { n: limit.percentage ?? 0 }) }}
+                  <span v-if="limit.next_reset_time"> · {{ formatZaiResetTime(limit.next_reset_time) }}</span>
+                </div>
+              </span>
+            </div>
+            <div v-if="zaiQuota.total_tokens_usage != null" class="flex items-center justify-between border-t border-gray-100 pt-2 dark:border-dark-500">
+              <span class="text-gray-500 dark:text-gray-400">{{ t('admin.accounts.zai.quota.totalTokens') }}</span>
+              <span class="font-medium text-gray-900 dark:text-gray-100">{{ zaiQuota.total_tokens_usage.toLocaleString() }}</span>
+            </div>
+            <div v-if="zaiQuota.total_model_call_count != null" class="flex items-center justify-between">
+              <span class="text-gray-500 dark:text-gray-400">{{ t('admin.accounts.zai.quota.totalCalls') }}</span>
+              <span class="font-medium text-gray-900 dark:text-gray-100">{{ zaiQuota.total_model_call_count.toLocaleString() }}</span>
+            </div>
+            <div v-if="zaiQuota.total_network_search_count != null" class="flex items-center justify-between">
+              <span class="text-gray-500 dark:text-gray-400">{{ t('admin.accounts.zai.quota.networkSearches') }}</span>
+              <span class="font-medium text-gray-900 dark:text-gray-100">{{ zaiQuota.total_network_search_count.toLocaleString() }}</span>
+            </div>
+            <div v-if="zaiQuota.total_web_read_mcp_count != null" class="flex items-center justify-between">
+              <span class="text-gray-500 dark:text-gray-400">{{ t('admin.accounts.zai.quota.webReads') }}</span>
+              <span class="font-medium text-gray-900 dark:text-gray-100">{{ zaiQuota.total_web_read_mcp_count.toLocaleString() }}</span>
+            </div>
+            <div v-if="zaiQuota.total_zread_mcp_count != null" class="flex items-center justify-between">
+              <span class="text-gray-500 dark:text-gray-400">{{ t('admin.accounts.zai.quota.zreadCalls') }}</span>
+              <span class="font-medium text-gray-900 dark:text-gray-100">{{ zaiQuota.total_zread_mcp_count.toLocaleString() }}</span>
+            </div>
+            <div v-if="zaiQuota.query_window_start && zaiQuota.query_window_end" class="text-xs text-gray-400 dark:text-gray-500">
+              {{ t('admin.accounts.zai.quota.queryWindow') }}: {{ zaiQuota.query_window_start }} → {{ zaiQuota.query_window_end }}
+            </div>
+            <div v-if="zaiQuota.errors && Object.keys(zaiQuota.errors).length > 0" class="text-xs text-amber-500 dark:text-amber-400">
+              {{ t('admin.accounts.zai.quota.partialError') }}: {{ Object.values(zaiQuota.errors).join('; ') }}
+            </div>
+          </div>
+          <div v-else class="text-xs text-gray-400 dark:text-gray-500">{{ t('common.loading') }}...</div>
+        </div>
+      </div>
+
       <!-- Test Info -->
       <div class="flex items-center justify-between px-1 text-xs text-gray-500 dark:text-gray-400">
         <div class="flex items-center gap-3">
@@ -240,6 +371,7 @@ import { Icon } from '@/components/icons'
 import { useClipboard } from '@/composables/useClipboard'
 import { adminAPI } from '@/api/admin'
 import type { Account, ClaudeModel } from '@/types'
+import type { CopilotQuotaInfo, ZAIQuotaInfo, ZAIQuotaLimit } from '@/api/admin/accounts'
 
 const { t } = useI18n()
 const { copyToClipboard } = useClipboard()
@@ -291,6 +423,101 @@ const supportsOpenAIImageTest = computed(() => {
 
 const supportsImageTest = computed(() => supportsGeminiImageTest.value || supportsOpenAIImageTest.value)
 
+// Copilot quota state
+const copilotQuota = ref<CopilotQuotaInfo | null>(null)
+const loadingQuota = ref(false)
+const quotaError = ref('')
+
+const loadCopilotQuota = async () => {
+  if (!props.account || props.account.platform !== 'copilot') return
+  loadingQuota.value = true
+  quotaError.value = ''
+  try {
+    copilotQuota.value = await adminAPI.accounts.getCopilotQuota(props.account.id)
+  } catch (e: any) {
+    quotaError.value = e?.response?.data?.message || e?.message || 'Failed to load quota'
+    copilotQuota.value = null
+  } finally {
+    loadingQuota.value = false
+  }
+}
+
+// Z.AI / GLM quota state
+const zaiQuota = ref<ZAIQuotaInfo | null>(null)
+const loadingZaiQuota = ref(false)
+const zaiQuotaError = ref('')
+
+const isZAIAccount = computed(() => {
+  if (!props.account) return false
+  if (props.account.platform !== 'anthropic') return false
+  const baseUrl = (props.account.credentials as Record<string, any> | undefined)?.base_url
+  if (!baseUrl || typeof baseUrl !== 'string') return false
+  const lower = baseUrl.toLowerCase()
+  return lower.includes('z.ai') || lower.includes('bigmodel.cn')
+})
+
+const loadZAIQuota = async () => {
+  if (!props.account || !isZAIAccount.value) return
+  loadingZaiQuota.value = true
+  zaiQuotaError.value = ''
+  try {
+    zaiQuota.value = await adminAPI.accounts.getZAIQuota(props.account.id)
+  } catch (e: any) {
+    zaiQuotaError.value = e?.response?.data?.message || e?.message || 'Failed to load quota'
+    zaiQuota.value = null
+  } finally {
+    loadingZaiQuota.value = false
+  }
+}
+
+const formatZaiLimitLabel = (limit: ZAIQuotaLimit): string => {
+  const type = (limit.type || '').toUpperCase()
+  if (type === 'TOKENS_LIMIT') return t('admin.accounts.zai.quota.fiveHourTokens')
+  if (type === 'WEEKLY_TOKENS_LIMIT' || type === 'WEEK_TOKENS_LIMIT') return t('admin.accounts.zai.quota.weeklyTokens')
+  if (type === 'TIME_LIMIT' || type === 'MCP_TIME_LIMIT') return t('admin.accounts.zai.quota.mcpMonthly')
+  return limit.type || t('admin.accounts.zai.quota.unknownLimit')
+}
+
+const formatZaiLimitValue = (limit: ZAIQuotaLimit): string => {
+  // Prefer explicit usage / total when present
+  const usage = limit.usage ?? limit.current_value
+  const total = limit.number ?? limit.unit
+  if (usage != null && total != null) {
+    return t('admin.accounts.zai.quota.used', {
+      used: usage.toLocaleString(),
+      total: total.toLocaleString()
+    })
+  }
+  if (limit.remaining != null && total != null) {
+    const used = total - limit.remaining
+    return t('admin.accounts.zai.quota.used', {
+      used: used.toLocaleString(),
+      total: total.toLocaleString()
+    })
+  }
+  return `${limit.percentage ?? 0}%`
+}
+
+const formatZaiResetTime = (epoch: number): string => {
+  // epoch is seconds (Z.AI returns ms or s — handle both)
+  const ms = epoch > 1e12 ? epoch : epoch * 1000
+  const date = new Date(ms)
+  if (Number.isNaN(date.getTime())) return ''
+  const now = Date.now()
+  const diff = ms - now
+  if (diff > 0) {
+    const hours = Math.floor(diff / 3600000)
+    const minutes = Math.floor((diff % 3600000) / 60000)
+    if (hours > 24) {
+      const days = Math.floor(hours / 24)
+      return t('admin.accounts.zai.quota.resetIn', { time: `${days}d` })
+    }
+    if (hours > 0) return t('admin.accounts.zai.quota.resetIn', { time: `${hours}h ${minutes}m` })
+    return t('admin.accounts.zai.quota.resetIn', { time: `${minutes}m` })
+  }
+  return t('admin.accounts.zai.quota.resetsAt', { time: date.toLocaleString() })
+}
+
 const sortTestModels = (models: ClaudeModel[]) => {
   const priorityMap = new Map(prioritizedGeminiModels.map((id, index) => [id, index]))
 
@@ -308,8 +535,18 @@ watch(
   async (newVal) => {
     if (newVal && props.account) {
       testPrompt.value = ''
+      copilotQuota.value = null
+      quotaError.value = ''
+      zaiQuota.value = null
+      zaiQuotaError.value = ''
       resetState()
       await loadAvailableModels()
+      if (props.account.platform === 'copilot') {
+        await loadCopilotQuota()
+      }
+      if (isZAIAccount.value) {
+        await loadZAIQuota()
+      }
     } else {
       abortStream()
     }
@@ -336,6 +573,12 @@ const loadAvailableModels = async () => {
     if (availableModels.value.length > 0) {
       if (props.account.platform === 'gemini') {
         selectedModelId.value = availableModels.value[0].id
+      } else if (props.account.platform === 'copilot') {
+        const preferred =
+          availableModels.value.find((m) => m.id === 'gpt-4o') ||
+          availableModels.value.find((m) => m.id === 'gpt-4o-mini') ||
+          availableModels.value.find((m) => m.id === 'claude-sonnet-4')
+        selectedModelId.value = preferred?.id || availableModels.value[0].id
       } else {
         // Try to select Sonnet as default, otherwise use first model
         const sonnetModel = availableModels.value.find((m) => m.id.includes('sonnet'))

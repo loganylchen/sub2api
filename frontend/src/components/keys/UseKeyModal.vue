@@ -433,27 +433,93 @@ const currentFiles = computed((): FileConfig[] => {
   }
 })
 
+// Model hints per platform for Claude Code: a recommended primary model,
+// a recommended small/fast model, and the full list of valid model strings
+// users can swap in. This avoids typos that would otherwise route to a wrong model.
+function getClaudeCodeModelHints(platform: GroupPlatform | null): {
+  primary: string
+  fast: string
+  available: string[]
+} {
+  switch (platform) {
+    case 'antigravity':
+      return {
+        primary: 'claude-opus-4-7',
+        fast: 'claude-sonnet-4-6',
+        available: [
+          'claude-opus-4-7',
+          'claude-opus-4-6',
+          'claude-opus-4-6-thinking',
+          'claude-opus-4-5-thinking',
+          'claude-sonnet-4-6',
+          'claude-sonnet-4-5'
+        ]
+      }
+    case 'copilot':
+      return {
+        primary: 'claude-opus-4-7',
+        fast: 'claude-haiku-4-5',
+        available: [
+          'claude-opus-4-7',
+          'claude-opus-4-1',
+          'claude-sonnet-4-6',
+          'claude-sonnet-4-5',
+          'claude-sonnet-4-5-20250929',
+          'claude-haiku-4-5',
+          'gpt-4o',
+          'gpt-5'
+        ]
+      }
+    default:
+      // anthropic and unknown platforms (incl. Z.AI) default to Anthropic naming
+      return {
+        primary: 'claude-opus-4-7',
+        fast: 'claude-haiku-4-5',
+        available: [
+          'claude-opus-4-7',
+          'claude-opus-4-5',
+          'claude-opus-4-1',
+          'claude-sonnet-4-6',
+          'claude-sonnet-4-5',
+          'claude-haiku-4-5'
+        ]
+      }
+  }
+}
+
 function generateAnthropicFiles(baseUrl: string, apiKey: string): FileConfig[] {
+  const { primary, fast, available } = getClaudeCodeModelHints(props.platform)
+  const modelComment = t('keys.useKeyModal.claude.modelComment', { models: available.join(', ') })
+
   let path: string
   let content: string
 
   switch (activeTab.value) {
     case 'unix':
       path = 'Terminal'
-      content = `export ANTHROPIC_BASE_URL="${baseUrl}"
+      content = `# ${modelComment}
+export ANTHROPIC_BASE_URL="${baseUrl}"
 export ANTHROPIC_AUTH_TOKEN="${apiKey}"
+export ANTHROPIC_MODEL="${primary}"
+export ANTHROPIC_SMALL_FAST_MODEL="${fast}"
 export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
       break
     case 'cmd':
       path = 'Command Prompt'
-      content = `set ANTHROPIC_BASE_URL=${baseUrl}
+      content = `REM ${modelComment}
+set ANTHROPIC_BASE_URL=${baseUrl}
 set ANTHROPIC_AUTH_TOKEN=${apiKey}
+set ANTHROPIC_MODEL=${primary}
+set ANTHROPIC_SMALL_FAST_MODEL=${fast}
 set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
       break
     case 'powershell':
       path = 'PowerShell'
-      content = `$env:ANTHROPIC_BASE_URL="${baseUrl}"
+      content = `# ${modelComment}
+$env:ANTHROPIC_BASE_URL="${baseUrl}"
 $env:ANTHROPIC_AUTH_TOKEN="${apiKey}"
+$env:ANTHROPIC_MODEL="${primary}"
+$env:ANTHROPIC_SMALL_FAST_MODEL="${fast}"
 $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
       break
     default:
@@ -469,6 +535,8 @@ $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
   "env": {
     "ANTHROPIC_BASE_URL": "${baseUrl}",
     "ANTHROPIC_AUTH_TOKEN": "${apiKey}",
+    "ANTHROPIC_MODEL": "${primary}",
+    "ANTHROPIC_SMALL_FAST_MODEL": "${fast}",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
     "CLAUDE_CODE_ATTRIBUTION_HEADER": "0"
   }

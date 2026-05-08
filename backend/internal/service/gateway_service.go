@@ -2118,6 +2118,10 @@ func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *i
 	useMixed := (platform == PlatformAnthropic || platform == PlatformGemini) && !hasForcePlatform
 	if useMixed {
 		platforms := []string{platform, PlatformAntigravity}
+		// Copilot 账号只能混入 Anthropic 分组（没有 Gemini 协议翻译层）
+		if platform == PlatformAnthropic {
+			platforms = append(platforms, PlatformCopilot)
+		}
 		var accounts []Account
 		var err error
 		if groupID != nil {
@@ -2136,7 +2140,7 @@ func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *i
 		}
 		filtered := make([]Account, 0, len(accounts))
 		for _, acc := range accounts {
-			if acc.Platform == PlatformAntigravity && !acc.IsMixedSchedulingEnabled() {
+			if (acc.Platform == PlatformAntigravity || acc.Platform == PlatformCopilot) && !acc.IsMixedSchedulingEnabled() {
 				continue
 			}
 			filtered = append(filtered, acc)
@@ -2210,7 +2214,14 @@ func (s *GatewayService) isAccountAllowedForPlatform(account *Account, platform 
 		if account.Platform == platform {
 			return true
 		}
-		return account.Platform == PlatformAntigravity && account.IsMixedSchedulingEnabled()
+		if account.Platform == PlatformAntigravity {
+			return account.IsMixedSchedulingEnabled()
+		}
+		// Copilot 仅可混入 Anthropic 分组
+		if account.Platform == PlatformCopilot && platform == PlatformAnthropic {
+			return account.IsMixedSchedulingEnabled()
+		}
+		return false
 	}
 	return account.Platform == platform
 }
@@ -3155,7 +3166,8 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 							_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 						}
 						if !clearSticky && s.isAccountInGroup(account, groupID) && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) {
-							if account.Platform == nativePlatform || (account.Platform == PlatformAntigravity && account.IsMixedSchedulingEnabled()) {
+							if account.Platform == nativePlatform ||
+								((account.Platform == PlatformAntigravity || (account.Platform == PlatformCopilot && nativePlatform == PlatformAnthropic)) && account.IsMixedSchedulingEnabled()) {
 								if s.debugModelRoutingEnabled() {
 									logger.LegacyPrintf("service.gateway", "[ModelRoutingDebug] legacy mixed routed sticky hit: group_id=%v model=%s session=%s account=%d", derefGroupID(groupID), requestedModel, shortSessionHash(sessionHash), accountID)
 								}
@@ -3206,8 +3218,8 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 					fmt.Sprintf("Privacy not set, required by group [%s]", schedGroup.Name))
 				continue
 			}
-			// 过滤：原生平台直接通过，antigravity 需要启用混合调度
-			if acc.Platform == PlatformAntigravity && !acc.IsMixedSchedulingEnabled() {
+			// 过滤：原生平台直接通过，antigravity / copilot 需要启用混合调度
+			if (acc.Platform == PlatformAntigravity || acc.Platform == PlatformCopilot) && !acc.IsMixedSchedulingEnabled() {
 				continue
 			}
 			if requestedModel != "" && !s.isModelSupportedByAccountWithContext(ctx, acc, requestedModel) {
@@ -3276,7 +3288,8 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 						_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 					}
 					if !clearSticky && s.isAccountInGroup(account, groupID) && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) && !s.isStickyAccountUpstreamRestricted(ctx, groupID, account, requestedModel) {
-						if account.Platform == nativePlatform || (account.Platform == PlatformAntigravity && account.IsMixedSchedulingEnabled()) {
+						if account.Platform == nativePlatform ||
+							((account.Platform == PlatformAntigravity || (account.Platform == PlatformCopilot && nativePlatform == PlatformAnthropic)) && account.IsMixedSchedulingEnabled()) {
 							return account, nil
 						}
 					}
@@ -3318,8 +3331,8 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 				fmt.Sprintf("Privacy not set, required by group [%s]", schedGroup.Name))
 			continue
 		}
-		// 过滤：原生平台直接通过，antigravity 需要启用混合调度
-		if acc.Platform == PlatformAntigravity && !acc.IsMixedSchedulingEnabled() {
+		// 过滤：原生平台直接通过，antigravity / copilot 需要启用混合调度
+		if (acc.Platform == PlatformAntigravity || acc.Platform == PlatformCopilot) && !acc.IsMixedSchedulingEnabled() {
 			continue
 		}
 		if requestedModel != "" && !s.isModelSupportedByAccountWithContext(ctx, acc, requestedModel) {
@@ -3514,7 +3527,7 @@ func isPlatformFilteredForSelection(acc *Account, platform string, allowMixedSch
 		return true
 	}
 	if allowMixedScheduling {
-		if acc.Platform == PlatformAntigravity {
+		if acc.Platform == PlatformAntigravity || acc.Platform == PlatformCopilot {
 			return !acc.IsMixedSchedulingEnabled()
 		}
 		return acc.Platform != platform
@@ -3557,6 +3570,14 @@ func summarizeSelectionFailureStats(stats selectionFailureStats) string {
 // isModelSupportedByAccountWithContext 根据账户平台检查模型支持（带 context）
 // 对于 Antigravity 平台，会先获取映射后的最终模型名（包括 thinking 后缀）再检查支持
 func (s *GatewayService) isModelSupportedByAccountWithContext(ctx context.Context, account *Account, requestedModel string) bool {
+	if account.Platform == PlatformCopilot {
+		if strings.TrimSpace(requestedModel) == "" {
+			return true
+		}
+		// 复用翻译层 normalize：dash→dot 并 strip 日期后缀
+		normalized := normalizeCopilotModel(requestedModel, account.GetModelMapping())
+		return account.IsModelSupported(normalized) || account.IsModelSupported(requestedModel)
+	}
 	if account.Platform == PlatformAntigravity {
 		if strings.TrimSpace(requestedModel) == "" {
 			return true
@@ -3581,6 +3602,13 @@ func (s *GatewayService) isModelSupportedByAccountWithContext(ctx context.Contex
 
 // isModelSupportedByAccount 根据账户平台检查模型支持（无 context，用于非 Antigravity 平台）
 func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedModel string) bool {
+	if account.Platform == PlatformCopilot {
+		if strings.TrimSpace(requestedModel) == "" {
+			return true
+		}
+		normalized := normalizeCopilotModel(requestedModel, account.GetModelMapping())
+		return account.IsModelSupported(normalized) || account.IsModelSupported(requestedModel)
+	}
 	if account.Platform == PlatformAntigravity {
 		if strings.TrimSpace(requestedModel) == "" {
 			return true
@@ -8502,6 +8530,24 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 	// 返回 nil 避免 handler 层记录为错误，也不设置 ops 上游错误上下文。
 	if account.Platform == PlatformAntigravity {
 		s.countTokensError(c, http.StatusNotFound, "not_found_error", "count_tokens endpoint is not supported for this platform")
+		return nil
+	}
+
+	// Copilot 没有 count_tokens 端点，本地启发式估算（参考 ericc-ch/copilot-api 的简化版本）。
+	// 返回 200 与一个粗略估算，避免阻断主路径。
+	if account.Platform == PlatformCopilot {
+		estimate := len(body) / 4
+		hasTools := gjson.GetBytes(body, "tools").Exists() && len(gjson.GetBytes(body, "tools").Array()) > 0
+		if hasTools {
+			estimate += 346
+		}
+		if strings.HasPrefix(parsed.Model, "claude") {
+			estimate = int(float64(estimate) * 1.15)
+		}
+		if estimate < 0 {
+			estimate = 0
+		}
+		c.JSON(http.StatusOK, gin.H{"input_tokens": estimate})
 		return nil
 	}
 
