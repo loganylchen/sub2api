@@ -1,4 +1,4 @@
-.PHONY: build build-backend build-frontend build-datamanagementd test test-backend test-frontend test-frontend-critical test-datamanagementd secret-scan
+.PHONY: build build-backend build-frontend build-datamanagementd test test-backend test-frontend test-frontend-critical test-datamanagementd secret-scan pricing-hash
 
 FRONTEND_CRITICAL_VITEST := \
 	src/views/auth/__tests__/LinuxDoCallbackView.spec.ts \
@@ -42,3 +42,10 @@ test-datamanagementd:
 
 secret-scan:
 	@python3 tools/secret_scan.py
+
+# 重新生成模型价格 JSON 的 sha256 文件（每次手改 JSON 后必须跑一次）
+# 容器内 PricingService 用这个 hash 来检测远端是否更新
+pricing-hash:
+	@cd backend/resources/model-pricing && \
+		sha256sum model_prices_and_context_window.json | awk '{print $$1}' > model_prices_and_context_window.sha256 && \
+		echo "Updated $$(cat model_prices_and_context_window.sha256)  model_prices_and_context_window.sha256"

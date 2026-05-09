@@ -148,6 +148,15 @@ services:
       - UPDATE_PROXY_URL=${UPDATE_PROXY_URL:-}
 
       # =======================================================================
+      # Pricing Source (model_prices_and_context_window.json)
+      # =======================================================================
+      # Override the default Wei-Shaw/model-price-repo with our own fork that
+      # carries extra entries (e.g. GLM 4.5/4.6/4.7/5.1). HASH_URL is used for
+      # ~10-min change detection; without it the JSON only refreshes every 24h.
+      - PRICING_REMOTE_URL=${PRICING_REMOTE_URL:-https://raw.githubusercontent.com/loganylchen/sub2api/main/backend/resources/model-pricing/model_prices_and_context_window.json}
+      - PRICING_HASH_URL=${PRICING_HASH_URL:-https://raw.githubusercontent.com/loganylchen/sub2api/main/backend/resources/model-pricing/model_prices_and_context_window.sha256}
+
+      # =======================================================================
       # Image Generation Stream & Concurrency
       # =======================================================================
       - GATEWAY_IMAGE_STREAM_DATA_INTERVAL_TIMEOUT=${GATEWAY_IMAGE_STREAM_DATA_INTERVAL_TIMEOUT:-900}
